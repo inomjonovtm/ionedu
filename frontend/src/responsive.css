@@ -1,0 +1,179 @@
+/* ============================================================
+   Responsive overrides — applied on top of ioneda.css
+   Catches inline grids and per-page <style> patterns I use.
+   ============================================================ */
+
+/* Tablet (≤1024) */
+@media (max-width: 1024px) {
+  /* Course detail and lesson player both use 1fr + sidebar */
+  .course-layout,
+  .player-layout,
+  .profile-grid,
+  .res-layout,
+  .problems-layout { grid-template-columns: 1fr !important; }
+  .course-sidebar,
+  .player-sidebar { position: static !important; max-height: none !important; }
+  .player-layout { padding: 16px !important; }
+
+  /* DashLayout becomes 1-column on tablet */
+  .dash-shell { grid-template-columns: 1fr !important; }
+  .dash-sb { position: static !important; height: auto !important; }
+  .dash-sb-nav { flex-direction: row !important; flex-wrap: wrap !important; overflow-x: auto !important; }
+  .dash-sb-foot { flex-direction: row !important; border-top: none !important; border-bottom: 1px solid var(--border-2); }
+
+  /* Hero floating chips hidden on tablet */
+  .hero-chip { display: none !important; }
+
+  /* Cards layouts */
+  .catalog { grid-template-columns: 1fr !important; }
+  .filter-panel { position: static !important; }
+}
+
+/* Mobile (≤768) */
+@media (max-width: 768px) {
+  /* Container hugs edges */
+  .container, .container-wide { padding: 0 14px !important; }
+
+  /* Headings tighten */
+  h1, .page-title { font-size: 24px !important; }
+  .section-title { font-size: 24px !important; }
+  .hero h1 { font-size: 38px !important; line-height: 1.05 !important; }
+  .hero-sub { font-size: 15px !important; }
+
+  /* Buttons + CTAs stack */
+  .hero-ctas, .actions, .nav-buttons, .test-actions, .footer-bar {
+    flex-direction: column !important; align-items: stretch !important;
+  }
+  .hero-ctas .btn, .actions .btn { width: 100% !important; justify-content: center; }
+
+  /* Profile cover smaller */
+  .profile-cover { height: 120px !important; }
+  .profile-head { margin-top: -50px !important; flex-direction: column !important; align-items: flex-start !important; }
+  .profile-avatar { width: 100px !important; height: 100px !important; font-size: 36px !important; }
+
+  /* Forms use single column */
+  .form-grid-2 { grid-template-columns: 1fr !important; }
+
+  /* Tables become more compact */
+  .table th, .table td { padding: 10px 12px !important; font-size: 13px; }
+  .table .row-actions { opacity: 1 !important; }
+
+  /* Stats grid */
+  .stats-grid, .stat-cards, .stat-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Sec heads stack */
+  .sec-head, .sec-head-2 { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+
+  /* Hide non-critical desktop affordances */
+  .nav-actions { gap: 4px; }
+
+  /* Course / lesson player tweaks */
+  .player-layout { padding: 12px !important; gap: 16px !important; }
+  .lesson-meta h1 { font-size: 20px !important; }
+  .acc-head { padding: 14px 14px !important; }
+  .lesson-item { padding: 12px 16px 12px 50px !important; }
+
+  /* CourseBuilder steps stack 2x2 */
+  .step-pill { padding: 8px !important; }
+
+  /* CTA banners */
+  .cta-banner, .featured { padding: 32px 20px !important; border-radius: 16px !important; }
+  .cta-banner h2 { font-size: 24px !important; }
+  .cta-banner p { font-size: 14px !important; }
+
+  /* Reviews */
+  .reviews-summary { grid-template-columns: 1fr !important; }
+
+  /* Floating modals fit screen */
+  .modal { max-width: calc(100vw - 24px) !important; padding: 22px !important; }
+
+  /* Test taker */
+  .question-card { padding: 22px !important; }
+  .question-text { font-size: 20px !important; }
+
+  /* Pagination wraps */
+  .text-sm.text-muted { font-size: 12px; }
+}
+
+/* Small mobile (≤480) — 1 column everywhere */
+@media (max-width: 480px) {
+  .grid-3, .grid-4, .grid-2,
+  .stats-grid, .stat-cards, .stat-grid,
+  .preview-info-grid, .stats-row, .lb-stats {
+    grid-template-columns: 1fr !important;
+  }
+  .stat-card .val, .stat-tile .v, .stat-value { font-size: 24px !important; }
+  .profile-cover { height: 90px !important; }
+  .profile-avatar { width: 84px !important; height: 84px !important; font-size: 28px !important; }
+  .breadcrumb { font-size: 12px; }
+  .table { font-size: 12.5px; }
+  .nv-bell, .nv-search-btn { width: 34px !important; height: 34px !important; }
+  .nv-user { padding: 3px 10px 3px 3px !important; height: 36px !important; }
+  .nv-user .av { width: 28px !important; height: 28px !important; }
+}
+
+/* Touch-friendly tap sizes */
+@media (hover: none) and (pointer: coarse) {
+  .btn, .icon-btn { min-height: 40px; }
+  .row-actions { opacity: 1 !important; }
+}
+
+/* Prevent horizontal overflow on long URLs / words */
+img, svg, video { max-width: 100%; }
+body { overflow-x: hidden; }
+
+/* ============================================================
+   Avatar safety — images inside .avatar always fill cleanly,
+   never stretch beyond the container. Default size if none set.
+   ============================================================ */
+.avatar {
+  width: 36px; height: 36px;
+  overflow: hidden;
+}
+.avatar > img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  display: block;
+  border-radius: inherit;
+}
+
+/* ============================================================
+   Catch ALL inline grid-template-columns patterns — these
+   are used heavily across the app (style={{ ... }}).
+   ============================================================ */
+@media (max-width: 1024px) {
+  [style*="grid-template-columns: 1fr 320px"],
+  [style*="grid-template-columns: 1fr 360px"],
+  [style*="grid-template-columns: 1fr 380px"],
+  [style*="grid-template-columns: 2fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr"][style*="gap: 24px"],
+  [style*="grid-template-columns: 1fr 1fr"][style*="gap: 32px"],
+  [style*="grid-template-columns: 1fr 1fr"][style*="gap: 40px"],
+  [style*="grid-template-columns: 1.4fr 1fr"],
+  [style*="grid-template-columns: 1.1fr 1fr"],
+  [style*="grid-template-columns: 252px 1fr"],
+  [style*="grid-template-columns: 248px 1fr"],
+  [style*="grid-template-columns: 260px 1fr"],
+  [style*="grid-template-columns: 240px 1fr"],
+  [style*="grid-template-columns: 1fr 220px"] {
+    grid-template-columns: 1fr !important;
+  }
+  [style*="grid-template-columns: repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  [style*="grid-template-columns: repeat(3, 1fr)"],
+  [style*="grid-template-columns: repeat(4, 1fr)"],
+  [style*="grid-template-columns: repeat(2, 1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+  /* Flex rows with wrap usually OK, but for two-col headers force stack */
+  [style*="display: flex"][style*="justify-content: space-between"][style*="flex-wrap: wrap"] {
+    gap: 12px !important;
+  }
+}

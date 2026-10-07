@@ -1,0 +1,4 @@
+/* App-level overrides on top of ioneda.css */
+#root { min-height: 100vh; }
+a { color: inherit; }
+.app-shell { min-height: 100vh; }

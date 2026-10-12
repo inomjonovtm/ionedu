@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -23,7 +23,6 @@ const css = `
   .be-top .back:hover { color: var(--text); }
   .be-top h1 { font-size: 21px; letter-spacing: -0.03em; }
   .be-top .acts { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-  .be-need { font-size: 12.5px; font-weight: 600; color: var(--red-600); }
 
   .be-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
   .be-main { background: var(--white); border: 1px solid var(--border); border-radius: 18px; padding: 26px 28px; }
@@ -73,6 +72,7 @@ export default function AdminBlogEditor() {
   const [form, setForm] = useState(EMPTY)
   const [cover, setCover] = useState(null)
   const [coverPreview, setCoverPreview] = useState('')
+  const titleRef = useRef(null)
 
   const { data: existing, isLoading } = useQuery({
     queryKey: ['blog-edit', slug],
@@ -140,7 +140,17 @@ export default function AdminBlogEditor() {
   }
 
   const coverCls = `be-cover-prev thumb-${form.cover_color}`
-  const titleMissing = !form.title.trim()
+
+  // The backend requires a title, so validate on click instead of greying the
+  // buttons out — a dimmed button reads as a broken page.
+  function trySave(status) {
+    if (!form.title.trim()) {
+      toast.error('Avval sarlavha kiriting')
+      titleRef.current?.focus()
+      return
+    }
+    save.mutate(status)
+  }
 
   return (
     <DashLayout kind="admin">
@@ -152,13 +162,12 @@ export default function AdminBlogEditor() {
           <span className={`badge ${form.status === 'published' ? 'badge-green' : 'badge-amber'}`}>
             {form.status === 'published' ? 'Chop etilgan' : 'Qoralama'}
           </span>
-          {titleMissing && <span className="be-need">Saqlash uchun sarlavha kiriting</span>}
-          <button className="btn btn-secondary btn-sm" disabled={save.isPending || titleMissing}
-            onClick={() => save.mutate('draft')}>
+          <button className="btn btn-secondary btn-sm" disabled={save.isPending}
+            onClick={() => trySave('draft')}>
             <Icon name="file" size={14} /> Qoralama saqlash
           </button>
-          <button className="btn btn-primary btn-sm" disabled={save.isPending || titleMissing}
-            onClick={() => save.mutate('published')}>
+          <button className="btn btn-primary btn-sm" disabled={save.isPending}
+            onClick={() => trySave('published')}>
             <Icon name="check" size={14} /> {save.isPending ? 'Saqlanmoqda…' : 'Chop etish'}
           </button>
         </div>
@@ -166,7 +175,7 @@ export default function AdminBlogEditor() {
 
       <div className="be-grid">
         <div className="be-main">
-          <input className="be-title-in" autoFocus value={form.title}
+          <input className="be-title-in" ref={titleRef} autoFocus value={form.title}
             onChange={e => set('title', e.target.value)} placeholder="Maqola sarlavhasi…" />
           <textarea className="be-excerpt" rows={2} value={form.excerpt}
             onChange={e => set('excerpt', e.target.value)}

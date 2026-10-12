@@ -23,6 +23,7 @@ const css = `
   .be-top .back:hover { color: var(--text); }
   .be-top h1 { font-size: 21px; letter-spacing: -0.03em; }
   .be-top .acts { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .be-need { font-size: 12.5px; font-weight: 600; color: var(--red-600); }
 
   .be-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
   .be-main { background: var(--white); border: 1px solid var(--border); border-radius: 18px; padding: 26px 28px; }
@@ -111,7 +112,7 @@ export default function AdminBlogEditor() {
 
   const save = useMutation({
     mutationFn: (status) => {
-      const payload = { ...form, status: status || form.status }
+      const payload = { ...form, status: status || form.status, read_minutes: Number(form.read_minutes) || 3 }
       const fd = new FormData()
       Object.entries(payload).forEach(([k, v]) => {
         fd.append(k, k === 'is_featured' ? (v ? 'true' : 'false') : v)
@@ -139,6 +140,7 @@ export default function AdminBlogEditor() {
   }
 
   const coverCls = `be-cover-prev thumb-${form.cover_color}`
+  const titleMissing = !form.title.trim()
 
   return (
     <DashLayout kind="admin">
@@ -150,11 +152,12 @@ export default function AdminBlogEditor() {
           <span className={`badge ${form.status === 'published' ? 'badge-green' : 'badge-amber'}`}>
             {form.status === 'published' ? 'Chop etilgan' : 'Qoralama'}
           </span>
-          <button className="btn btn-secondary btn-sm" disabled={save.isPending || !form.title.trim()}
+          {titleMissing && <span className="be-need">Saqlash uchun sarlavha kiriting</span>}
+          <button className="btn btn-secondary btn-sm" disabled={save.isPending || titleMissing}
             onClick={() => save.mutate('draft')}>
             <Icon name="file" size={14} /> Qoralama saqlash
           </button>
-          <button className="btn btn-primary btn-sm" disabled={save.isPending || !form.title.trim()}
+          <button className="btn btn-primary btn-sm" disabled={save.isPending || titleMissing}
             onClick={() => save.mutate('published')}>
             <Icon name="check" size={14} /> {save.isPending ? 'Saqlanmoqda…' : 'Chop etish'}
           </button>

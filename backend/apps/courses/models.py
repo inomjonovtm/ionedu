@@ -132,10 +132,15 @@ class Enrollment(models.Model):
         ordering = ['-enrolled_at']
 
     def recompute_progress(self):
+        from django.db.models import Count
         from apps.tests.models import Test, TestAttempt
         lessons_total = Lesson.objects.filter(section__course=self.course).count()
-        tests_total = Test.objects.filter(section__course=self.course).count()
-        total = lessons_total + tests_total
+        # Tests without questions cannot be taken, so they never block completion.
+        test_ids = list(
+            Test.objects.filter(section__course=self.course)
+            .annotate(n=Count("questions")).filter(n__gt=0).values_list("id", flat=True)
+        )
+        total = lessons_total + len(test_ids)
         if total == 0:
             self.progress_percent = 0
         else:
@@ -143,8 +148,8 @@ class Enrollment(models.Model):
                 student=self.student, lesson__section__course=self.course, completed=True
             ).count()
             tests_passed = TestAttempt.objects.filter(
-                student=self.student, test__section__course=self.course, passed=True
-            ).values('test_id').distinct().count()
+                student=self.student, test_id__in=test_ids, passed=True
+            ).values("test_id").distinct().count()
             done = lessons_done + tests_passed
             self.progress_percent = round(done / total * 100, 1)
         if self.progress_percent >= 100 and not self.completed:

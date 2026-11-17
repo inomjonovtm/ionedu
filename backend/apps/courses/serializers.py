@@ -36,23 +36,57 @@ class LessonSerializer(serializers.ModelSerializer):
         return LessonProgress.objects.filter(student=user, lesson=obj, completed=True).exists()
 
     def get_tests(self, obj):
-        from apps.tests.serializers import TestMiniSerializer
-        return TestMiniSerializer(obj.tests.all(), many=True, context=self.context).data
+        # Kept for API compatibility — tests now live in section.items.
+        return []
 
 
 class SectionSerializer(serializers.ModelSerializer):
     lessons = LessonSerializer(many=True, read_only=True)
     tests = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()
     lesson_count = serializers.SerializerMethodField()
     test_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Section
-        fields = ['id', 'title', 'order', 'lessons', 'tests', 'lesson_count', 'test_count']
+        fields = ["id", "title", "order", "lessons", "tests", "items", "lesson_count", "test_count"]
+
+    def _tests(self, obj):
+        cache = self.context.setdefault("_section_tests", {})
+        if obj.id not in cache:
+            from apps.tests.serializers import TestMiniSerializer
+            tests = sorted(obj.tests.all(), key=lambda t: (t.order, t.id))
+            cache[obj.id] = TestMiniSerializer(tests, many=True, context=self.context).data
+        return cache[obj.id]
 
     def get_tests(self, obj):
-        from apps.tests.serializers import TestMiniSerializer
-        return TestMiniSerializer(obj.tests.all(), many=True, context=self.context).data
+        return self._tests(obj)
+
+    def get_items(self, obj):
+        """Lessons and tests merged into the single order the teacher arranged."""
+        rows = []
+        for l in obj.lessons.all():
+            done = LessonProgress.objects.filter(
+                student=self.context["request"].user, lesson=l, completed=True
+            ).exists() if self._authed() else False
+            rows.append({
+                "kind": "lesson", "id": l.id, "title": l.title, "order": l.order,
+                "duration_minutes": l.duration_minutes, "is_free_preview": l.is_free_preview,
+                "video_type": l.video_type, "is_completed": done,
+            })
+        for t in self._tests(obj):
+            rows.append({
+                "kind": "test", "id": t["id"], "title": t["title"], "order": t["order"],
+                "question_count": t["question_count"], "time_limit_minutes": t["time_limit_minutes"],
+                "pass_percent": t["pass_percent"], "is_passed": t["is_passed"], "best_score": t["best_score"],
+            })
+        # Lessons win ties so legacy data (all tests at 0) keeps a sane order.
+        rows.sort(key=lambda r: (r["order"], 0 if r["kind"] == "lesson" else 1, r["id"]))
+        return rows
+
+    def _authed(self):
+        req = self.context.get("request")
+        return bool(req and req.user and req.user.is_authenticated)
 
     def get_lesson_count(self, obj):
         return obj.lessons.count()

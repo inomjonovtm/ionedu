@@ -25,28 +25,35 @@ export const useAuth = create((set, get) => ({
     }
   },
 
-  async login(email, password) {
-    const { data } = await api.post('/auth/login/', { email, password })
+  /** Store tokens + user after any successful sign-in. */
+  completeAuth(data) {
     localStorage.setItem('access', data.access)
     localStorage.setItem('refresh', data.refresh)
     set({ user: data.user, access: data.access, refresh: data.refresh })
     return data.user
+  },
+
+  /**
+   * Returns the user, or `{ verification_required, email, resend_in, debug_code }`
+   * when the password is right but the email was never confirmed.
+   */
+  async login(email, password) {
+    const { data } = await api.post('/auth/login/', { email, password })
+    if (data.verification_required) return data
+    return get().completeAuth(data)
   },
 
   async loginWithGoogle(credential) {
     const { data } = await api.post('/auth/google/', { credential })
-    localStorage.setItem('access', data.access)
-    localStorage.setItem('refresh', data.refresh)
-    set({ user: data.user, access: data.access, refresh: data.refresh })
+    get().completeAuth(data)
     return data
   },
 
+  /** Creates the account; the caller must then show the email-code step. */
   async register(payload) {
     const { data } = await api.post('/auth/register/', payload)
-    localStorage.setItem('access', data.access)
-    localStorage.setItem('refresh', data.refresh)
-    set({ user: data.user, access: data.access, refresh: data.refresh })
-    return data.user
+    if (data.access) get().completeAuth(data)
+    return data
   },
 
   async logout() {

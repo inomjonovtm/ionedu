@@ -21,7 +21,7 @@ export function PageHead({ title, sub, children }) {
 }
 
 /** KPI card — label top, mono value, icon chip top-right. */
-export function StatCard({ icon, value, label, hint, to, tone = 'green', delay = 0 }) {
+export function StatCard({ icon, value, label, hint, to, tone = 'amber', delay = 0 }) {
   const body = (
     <>
       <div className="sc-top">

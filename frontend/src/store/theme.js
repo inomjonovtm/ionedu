@@ -11,7 +11,7 @@ function readInitial() {
 function apply(theme) {
   document.documentElement.setAttribute('data-theme', theme)
   const meta = document.querySelector('meta[name="theme-color"]')
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0F1311' : '#0E8345')
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0D1424' : '#FBF6EA')
 }
 
 export const useTheme = create((set, get) => ({

@@ -18,6 +18,10 @@ class UserMiniSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     initials = serializers.CharField(read_only=True)
     display_name = serializers.CharField(read_only=True)
+    has_password = serializers.SerializerMethodField()
+
+    def get_has_password(self, obj):
+        return obj.has_usable_password()
 
     class Meta:
         model = User
@@ -25,8 +29,8 @@ class UserSerializer(serializers.ModelSerializer):
                   'role', 'is_active', 'is_verified', 'bio', 'city',
                   'birth_year', 'region', 'district', 'school',
                   'specialty', 'experience_years', 'education',
-                  'date_joined']
-        read_only_fields = ['id', 'date_joined', 'is_verified', 'username']
+                  'date_joined', 'last_login', 'has_password']
+        read_only_fields = ['id', 'date_joined', 'last_login', 'is_verified', 'username', 'is_active', 'role']
 
 
 class AdminUserSerializer(UserSerializer):
@@ -37,7 +41,7 @@ class AdminUserSerializer(UserSerializer):
 
     class Meta(UserSerializer.Meta):
         fields = UserSerializer.Meta.fields + ['password']
-        read_only_fields = ['id', 'date_joined', 'username']
+        read_only_fields = ['id', 'date_joined', 'last_login', 'username']
 
     def validate_phone(self, v):
         if not v:
@@ -60,6 +64,21 @@ class AdminUserSerializer(UserSerializer):
         if qs.exists():
             raise serializers.ValidationError('Bu email band')
         return v
+
+    def create(self, validated):
+        password = validated.pop('password', None)
+        if not validated.get('email') and not validated.get('phone'):
+            raise serializers.ValidationError({'email': 'Email yoki telefon kerak'})
+        user = User(**validated)
+        user.username = validated.get('email') or validated.get('phone')
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        if user.role == 'admin':
+            user.is_staff = True
+        user.save()
+        return user
 
     def update(self, instance, validated):
         password = validated.pop('password', None)
@@ -173,7 +192,13 @@ class EmailTokenObtainPairSerializer(serializers.Serializer):
             raise serializers.ValidationError({'detail': "Email yoki parol noto'g'ri"})
         if not user.is_active:
             raise serializers.ValidationError({'detail': 'Akkaunt bloklangan'})
+        if not user.is_verified and user.email:
+            # The view turns this into a "verification_required" response.
+            self.unverified_user = user
+            return {}
 
+        from django.contrib.auth.models import update_last_login
+        update_last_login(None, user)
         refresh = RefreshToken.for_user(user)
         return {
             'access': str(refresh.access_token),

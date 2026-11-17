@@ -177,6 +177,27 @@ class PasswordResetCode(models.Model):
                 and timezone.now() - self.created_at < timedelta(minutes=10))
 
 
+class EmailVerification(models.Model):
+    """6-digit code proving ownership of an email address at sign-up."""
+    MAX_ATTEMPTS = 5
+    TTL_MINUTES = 15
+
+    email = models.EmailField(db_index=True)
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used = models.BooleanField(default=False)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def is_valid(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        return (not self.used and self.attempts < self.MAX_ATTEMPTS
+                and timezone.now() - self.created_at < timedelta(minutes=self.TTL_MINUTES))
+
+
 class TeamMember(models.Model):
     """Platform team member shown on the public About page; managed by admins."""
     full_name = models.CharField(max_length=120)

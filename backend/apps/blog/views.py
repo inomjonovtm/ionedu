@@ -1,3 +1,5 @@
+import uuid
+
 from django.core.files.storage import default_storage
 from django.db.models import F
 from rest_framework import viewsets, permissions, filters
@@ -9,6 +11,9 @@ from rest_framework.response import Response
 from apps.accounts.permissions import IsTeacher
 from .models import BlogPost
 from .serializers import BlogListSerializer, BlogDetailSerializer, BlogCommentSerializer
+
+
+ALLOWED_IMAGE_TYPES = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif'}
 
 
 class BlogViewSet(viewsets.ModelViewSet):
@@ -44,6 +49,21 @@ class BlogViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
+
+    def _check_owner(self, post):
+        """Teachers manage only their own posts; admins manage everything."""
+        u = self.request.user
+        if u.role == 'admin' or u.is_superuser or post.author_id == u.pk:
+            return
+        raise PermissionDenied("Bu maqola sizga tegishli emas")
+
+    def perform_update(self, serializer):
+        self._check_owner(serializer.instance)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._check_owner(instance)
+        instance.delete()
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -99,6 +119,17 @@ def upload_image(request):
     for f in files:
         if f.size > 12 * 1024 * 1024:
             return Response({'detail': f'{f.name} 12MB dan katta'}, status=400)
-        path = default_storage.save(f'blog/inline/{f.name}', f)
+        # Only real raster images, stored under a generated name — never trust
+        # the client's filename or extension (blocks .html / .svg uploads).
+        ext = ALLOWED_IMAGE_TYPES.get((f.content_type or '').lower())
+        if not ext:
+            return Response({'detail': 'Faqat JPG, PNG, WEBP yoki GIF rasm yuklash mumkin'}, status=400)
+        try:
+            from PIL import Image
+            Image.open(f).verify()
+            f.seek(0)
+        except Exception:
+            return Response({'detail': f"{f.name} — rasm fayli emas"}, status=400)
+        path = default_storage.save(f'blog/inline/{uuid.uuid4().hex}{ext}', f)
         urls.append(request.build_absolute_uri(default_storage.url(path)))
     return Response({'urls': urls, 'url': urls[0]})

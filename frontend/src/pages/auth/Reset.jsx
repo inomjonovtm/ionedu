@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import api from '../../api/client'
+import AuthShell, { CodeInput, PasswordInput } from '../../components/AuthShell'
 import Icon from '../../components/Icon'
 
 /**
@@ -47,67 +48,54 @@ export default function Reset() {
   }
 
   return (
-    <>
-      <style>{`body{background:var(--bg-soft)}`}</style>
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 16px' }}>
-        <div className="card fade-up" style={{ width: '100%', maxWidth: 440, padding: 40, background: 'var(--white)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.08)' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
-            <div style={{ width: 56, height: 56, borderRadius: 14, background: 'var(--green-50)', color: 'var(--green-600)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="shield" size={24} />
-            </div>
-          </div>
-          <h1 style={{ fontSize: 24, textAlign: 'center', marginBottom: 6 }}>Parolni tiklash</h1>
-          <p style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 14, marginBottom: 28 }}>
-            {step === 1
-              ? 'Email manzilingizni kiriting — tasdiqlash kodi yuboramiz'
-              : `${email} manziliga yuborilgan 6 xonali kodni kiriting`}
-          </p>
+    <AuthShell headline={<>Yo'lni <em>yo'qotdingizmi?</em> Qaytaramiz.</>}
+      text="Emailingizga kod yuboramiz — yangi parol o'rnatib, sayohatni davom ettirasiz.">
+      <h1 className="au-title">Parolni <span className="mark-sun">tiklash</span></h1>
+      <p className="au-sub">
+        {step === 1
+          ? 'Email manzilingizni kiriting — tasdiqlash kodini yuboramiz.'
+          : <>Kod shu manzilga yuborildi:<br /><span className="au-mail" style={{ marginTop: 10 }}><Icon name="mail" size={14} /> {email}</span></>}
+      </p>
 
-          {step === 1 ? (
-            <form onSubmit={sendCode}>
-              <div className="field">
-                <label className="label">Email</label>
-                <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="siz@email.com" autoFocus required autoComplete="email" />
-              </div>
-              <button className="btn btn-primary btn-lg btn-block" disabled={busy || !/^\S+@\S+\.\S+$/.test(email.trim())}>
-                {busy ? 'Yuborilmoqda…' : 'Kod yuborish'}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={confirm}>
-              <div className="field">
-                <label className="label">Tasdiqlash kodi</label>
-                <input className="input" inputMode="numeric" maxLength={6} autoFocus
-                  value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
-                  style={{ textAlign: 'center', fontSize: 22, letterSpacing: '0.4em', fontFamily: 'var(--font-display)', fontWeight: 700, height: 52 }} />
-              </div>
-              <div className="field">
-                <label className="label">Yangi parol</label>
-                <input className="input" type="password" value={pwd} onChange={e => setPwd(e.target.value)} minLength={6} required />
-              </div>
-              <div className="field">
-                <label className="label">Yangi parol (qaytadan)</label>
-                <input className="input" type="password" value={pwd2} onChange={e => setPwd2(e.target.value)} minLength={6} required />
-              </div>
-              <button className="btn btn-primary btn-lg btn-block" disabled={busy || code.length !== 6}>
-                {busy ? 'Tekshirilmoqda…' : 'Parolni yangilash'}
-              </button>
-              <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: 8 }}
-                onClick={() => { setStep(1); setCode('') }}>
-                Boshqa email kiritish
-              </button>
-            </form>
-          )}
-
-          <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-3)', marginTop: 24 }}>
-            <Link to="/auth/login" style={{ color: 'var(--green-600)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Icon name="arrowL" size={14} /> Kirish sahifasiga qaytish
-            </Link>
+      {step === 1 ? (
+        <form onSubmit={sendCode}>
+          <div className="field">
+            <label className="label" htmlFor="rs-email">Email</label>
+            <input id="rs-email" className="input" type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="siz@email.com" autoFocus required autoComplete="email" />
           </div>
-        </div>
+          <button className="btn btn-primary btn-lg btn-block" disabled={busy || !/^\S+@\S+\.\S+$/.test(email.trim())}>
+            {busy ? 'Yuborilmoqda…' : <>Kod yuborish <Icon name="arrowR" size={17} /></>}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={confirm}>
+          <div className="field">
+            <label className="label">Tasdiqlash kodi</label>
+            <CodeInput value={code} onChange={setCode} />
+          </div>
+          <div className="field">
+            <label className="label">Yangi parol</label>
+            <PasswordInput value={pwd} onChange={setPwd} meter minLength={6} required autoComplete="new-password" />
+          </div>
+          <div className="field">
+            <label className="label">Yangi parol (qaytadan)</label>
+            <PasswordInput value={pwd2} onChange={setPwd2} minLength={6} required autoComplete="new-password" />
+            {pwd2 && pwd !== pwd2 && <div className="field-error">Parollar mos kelmadi</div>}
+          </div>
+          <button className="btn btn-primary btn-lg btn-block" disabled={busy || code.length !== 6}>
+            {busy ? 'Tekshirilmoqda…' : 'Parolni yangilash'}
+          </button>
+          <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: 8 }}
+            onClick={() => { setStep(1); setCode('') }}>
+            Boshqa email kiritish
+          </button>
+        </form>
+      )}
+
+      <div className="au-foot">
+        <Link to="/auth/login">Kirish sahifasiga qaytish</Link>
       </div>
-    </>
+    </AuthShell>
   )
 }

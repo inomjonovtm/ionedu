@@ -2,23 +2,26 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import api from './../api/client'
 import Icon from './Icon'
+import Logo from './Logo'
 
 const ftCss = `
-  .ft-brand {
-    display: inline-flex; align-items: center; gap: 10px;
-    font-family: var(--font-display); font-weight: 700; font-size: 19px;
-    letter-spacing: -0.04em; color: #fff; text-decoration: none;
+  .footer { position: relative; overflow: hidden; border-radius: 36px 36px 0 0; }
+  .footer::before { content: ''; position: absolute; inset: 0; background-image: var(--topo); background-size: 520px 360px; filter: invert(1); opacity: .5; pointer-events: none; }
+  .footer .container { position: relative; }
+  .ft-cta {
+    display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+    padding-bottom: 44px; margin-bottom: 48px; border-bottom: 1.5px dashed rgba(255,255,255,.16);
   }
-  .ft-brand .mark {
-    width: 30px; height: 30px; border-radius: 9px;
-    background: var(--green-600); color: white;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  .ft-desc { font-size: 13.5px; color: #8E978F; max-width: 280px; margin-top: 16px; line-height: 1.65; }
-  .ft-stats { display: flex; gap: 20px; margin-top: 22px; }
-  .ft-stats .num { font-family: var(--font-mono); font-size: 16px; font-weight: 560; color: #fff; line-height: 1; }
-  .ft-stats .lbl { font-size: 11px; color: #7C857F; margin-top: 5px; }
+  .ft-cta h3 { color: #fff; font-size: clamp(28px, 4vw, 44px); font-weight: 800; letter-spacing: -.04em; max-width: 560px; }
+  .ft-cta h3 em { font-style: normal; color: var(--sun); }
+  .ft-brand { text-decoration: none; display: inline-flex; }
+  .ft-desc { font-size: 14px; color: #8591B0; max-width: 290px; margin-top: 16px; line-height: 1.65; }
+  .ft-stats { display: flex; gap: 22px; margin-top: 22px; }
+  .ft-stats .num { font-family: var(--font-display); font-size: 22px; font-weight: 800; color: #fff; line-height: 1; letter-spacing: -.03em; }
+  .ft-stats .lbl { font-size: 11.5px; color: #8591B0; margin-top: 5px; }
   .footer ul a { display: inline-flex; align-items: center; gap: 8px; }
+  .ft-mute { font-size: 13px; color: #8591B0; }
+  .ft-coord { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; }
 `
 
 export default function Footer() {
@@ -37,14 +40,13 @@ export default function Footer() {
     <footer className="footer">
       <style>{ftCss}</style>
       <div className="container">
+        <div className="ft-cta">
+          <h3>Dunyoni <em>xaritadan</em> emas, bilimdan o'rgan.</h3>
+          <Link to="/courses" className="btn btn-accent btn-lg">Kurslarni ko'rish <Icon name="arrowR" size={17} /></Link>
+        </div>
         <div className="footer-grid">
           <div>
-            <Link to="/" className="ft-brand">
-              <span className="mark">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-              </span>
-              {siteName}
-            </Link>
+            <Link to="/" className="ft-brand"><Logo size={36} name={siteName} light /></Link>
             <p className="ft-desc">
               Geografiya o'rganish uchun zamonaviy platforma. O'zbekistondan olamga.
             </p>
@@ -100,7 +102,7 @@ export default function Footer() {
                 </a></li>
               )}
               {!s.telegram_url && !s.youtube_url && !s.instagram_url && !s.facebook_url && (
-                <li style={{ fontSize: 13, color: '#7C857F' }}>Tez orada qo'shiladi</li>
+                <li className="ft-mute">Tez orada qo'shiladi</li>
               )}
               {s.contact_email && (
                 <li><a href={`mailto:${s.contact_email}`}>{s.contact_email}</a></li>
@@ -109,14 +111,14 @@ export default function Footer() {
                 <li><a href={`tel:${s.contact_phone.replace(/\s/g, '')}`}>{s.contact_phone}</a></li>
               )}
               {s.address && (
-                <li style={{ fontSize: 13, color: '#7C857F' }}>{s.address}</li>
+                <li className="ft-mute">{s.address}</li>
               )}
             </ul>
           </div>
         </div>
         <div className="footer-bottom">
           <span>© {new Date().getFullYear()} {siteName} — Geografiya o'rganish platformasi</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.08em' }}>UZ · 2026</span>
+          <span className="ft-coord">41.31°N · 69.24°E — TOSHKENT</span>
         </div>
       </div>
     </footer>

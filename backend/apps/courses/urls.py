@@ -4,7 +4,7 @@ from .views import (
     CategoryViewSet, CourseViewSet, SectionViewSet, LessonViewSet,
     lesson_complete, pending_courses, approve_course, reject_course,
     SectionDetailView, LessonDetailView,
-    LessonCommentsView, LessonMaterialsView, delete_comment, delete_material,
+    LessonCommentsView, LessonMaterialsView, delete_comment, delete_material, duplicate_lesson,
 )
 
 router = DefaultRouter()
@@ -17,6 +17,7 @@ urlpatterns = [
     path('sections/<int:pk>/', SectionDetailView.as_view()),
     path('sections/<int:section_id>/lessons/', LessonViewSet.as_view({'get': 'list', 'post': 'create'})),
     path('lessons/<int:pk>/', LessonDetailView.as_view()),
+    path('lessons/<int:pk>/duplicate/', duplicate_lesson),
     path('lessons/<int:lesson_id>/complete/', lesson_complete),
     path('lessons/<int:lesson_id>/comments/', LessonCommentsView.as_view()),
     path('comments/<int:pk>/', delete_comment),

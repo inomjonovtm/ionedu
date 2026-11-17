@@ -1,455 +1,220 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import api from '../../api/client'
 import DashLayout from '../../components/DashLayout'
 import Icon from '../../components/Icon'
-import Pagination from '../../components/Pagination'
-import FilterBar from '../../components/FilterBar'
+import Confirm from '../../components/Confirm'
+import TestEditor from '../../components/builder/TestEditor'
 import { PageHead, EmptyState } from '../../components/Dash'
-import { useAuth } from '../../store/auth'
 
-const PAGE_SIZE = 10
+/* Standalone tests (the public "Testlar" catalog) — list + full editor.
+   Course tests are edited inside the course studio. */
 
-const styles = `
-  .tt-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--r-card); margin-bottom: 12px; overflow: hidden; transition: border-color .18s, box-shadow .18s; }
-  .tt-card:hover { border-color: #D8DCD7; box-shadow: var(--shadow-soft); }
-  .tt-head { display: flex; align-items: center; gap: 14px; padding: 16px 20px; cursor: pointer; }
-  .tt-ic { width: 40px; height: 40px; border-radius: 12px; background: var(--green-50); color: var(--green-700); box-shadow: inset 0 0 0 1px var(--green-100); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .tt-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-4); letter-spacing: 0.02em; }
-  .tt-body { border-top: 1px solid var(--border-2); padding: 16px 20px; background: var(--bg-soft); }
-  .tt-q { background: var(--white); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 10px; }
-  .tt-q-opt { display: flex; align-items: center; gap: 12px; padding: 9px 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--white); margin-bottom: 8px; transition: border-color .12s, background .12s; }
-  .tt-q-opt.correct { border-color: var(--green-600); background: var(--green-50); }
-  .tt-q-marker { width: 26px; height: 26px; border-radius: 999px; border: 1.5px solid var(--border); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 560; font-size: 12px; background: var(--white); cursor: pointer; flex-shrink: 0; transition: all .12s; }
-  .tt-q-opt.correct .tt-q-marker { background: var(--green-600); border-color: var(--green-600); color: white; }
-  .tt-q-opt input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; }
-  .tt-input-lg { width: 100%; padding: 11px 2px; font-size: 16px; font-weight: 550; letter-spacing: -0.01em; border: none; outline: none; border-bottom: 1.5px solid var(--border); background: transparent; transition: border-color .12s; }
-  .tt-input-lg:focus { border-bottom-color: var(--green-600); }
+const css = `
+  .tt-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .tt-bar .search-box { flex: 1 1 260px; } .tt-bar .search-box .input { width: 100%; }
+  .tt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; }
+  .tt-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 22px; padding: 18px; display: flex; flex-direction: column; gap: 12px; transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease; cursor: pointer; }
+  .tt-card:hover { border-color: var(--line); box-shadow: var(--hard); transform: translate(-2px, -2px); }
+  .tt-card-top { display: flex; align-items: flex-start; gap: 12px; }
+  .tt-ico { width: 46px; height: 46px; border-radius: 15px; border: 1.5px solid var(--line); background: #DAD0FF; color: #14213D; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transform: rotate(-4deg); font-size: 22px; }
+  .tt-card h3 { font-size: 18px; line-height: 1.2; }
+  .tt-desc { font-size: 13.5px; color: var(--text-3); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tt-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tt-meta div { background: var(--bg-soft); border-radius: 12px; padding: 9px 10px; }
+  .tt-meta b { display: block; font-family: var(--font-display); font-size: 19px; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+  .tt-meta span { font-size: 11.5px; color: var(--text-3); font-weight: 600; }
+  .tt-foot { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 12px; border-top: 1.5px dashed var(--border); }
+  .tt-foot .sp { flex: 1; }
+  .tt-edit-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .tt-edit-head h1 { font-size: 28px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .tt-back { width: 42px; height: 42px; border-radius: 13px; border: 1.5px solid var(--border); background: var(--white); display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); flex-shrink: 0; }
+  .tt-back:hover { border-color: var(--line); color: var(--text); }
+  .tt-panel { background: var(--white); border: 1.5px solid var(--border); border-radius: 22px; padding: 22px; }
+  @media (max-width: 640px) { .tt-panel { padding: 14px; } .tt-grid { grid-template-columns: 1fr; } }
 `
 
-export default function TeacherTests() {
-  const { user } = useAuth()
-  const qc = useQueryClient()
-  const [creating, setCreating] = useState(false)
-  const [editingId, setEditingId] = useState(null)
-  const [search, setSearch] = useState('')
-  const [vis, setVis] = useState('')
-  const [page, setPage] = useState(1)
+function CreateModal({ onClose, onCreated }) {
+  const [title, setTitle] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit(e) {
+    e.preventDefault()
+    if (!title.trim()) return
+    setBusy(true)
+    try {
+      const { data } = await api.post('/tests/', { title: title.trim(), is_public: false, pass_percent: 60 })
+      toast.success('Test yaratildi — endi savollar qo\'shing')
+      onCreated(data.id)
+    } catch (err) {
+      toast.error(err.response?.data?.title?.[0] || err.response?.data?.detail || 'Test yaratib bo\'lmadi')
+    } finally { setBusy(false) }
+  }
+  return (
+    <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <form className="modal" onSubmit={submit}>
+        <h3 style={{ fontSize: 22, marginBottom: 4 }}>Yangi test</h3>
+        <p className="text-sm text-muted" style={{ marginBottom: 18 }}>
+          Test avval yopiq holda yaratiladi. Savollarni qo'shib bo'lgach, sozlamalardan ommaga ochasiz.
+        </p>
+        <div className="field">
+          <label className="label">Test nomi</label>
+          <input className="input" value={title} onChange={e => setTitle(e.target.value)} autoFocus maxLength={200}
+            placeholder="Masalan: Dunyo poytaxtlari — 20 savol" />
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Bekor qilish</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !title.trim()}>{busy ? 'Yaratilmoqda…' : 'Yaratish'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
 
-  const { data: allTests = [], isLoading } = useQuery({
+export default function TeacherTests() {
+  const qc = useQueryClient()
+  const loc = useLocation()
+  const kind = loc.pathname.startsWith('/admin-panel') ? 'admin' : 'teacher'
+  const [params, setParams] = useSearchParams()
+  const editId = params.get('test')
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('all')
+  const [creating, setCreating] = useState(false)
+  const [toDelete, setToDelete] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const { data: tests = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['my-standalone-tests'],
     queryFn: () => api.get('/tests/mine/').then(r => r.data.results || r.data),
   })
 
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['my-standalone-tests'] })
+    qc.invalidateQueries({ queryKey: ['standalone-tests'] })
+  }
+  const open = (id) => setParams(id ? { test: String(id) } : {})
+
+  async function duplicate(t) {
+    try {
+      await api.post(`/tests/${t.id}/duplicate/`)
+      toast.success('Test nusxalandi'); refresh()
+    } catch { toast.error("Nusxalab bo'lmadi") }
+  }
+  async function togglePublic(t) {
+    if (!t.is_public && !t.question_count) return toast.error("Savolsiz testni ommaga ochib bo'lmaydi")
+    try {
+      await api.patch(`/tests/${t.id}/`, { is_public: !t.is_public })
+      toast.success(t.is_public ? 'Test yopildi' : 'Test ommaga ochildi'); refresh()
+    } catch { toast.error("Holatni o'zgartirib bo'lmadi") }
+  }
+  async function remove() {
+    setBusy(true)
+    try {
+      await api.delete(`/tests/${toDelete.id}/`)
+      toast.success("Test o'chirildi"); setToDelete(null); refresh()
+    } catch { toast.error("O'chirib bo'lmadi") }
+    finally { setBusy(false) }
+  }
+
+  /* ── editor view ── */
+  if (editId) {
+    const current = tests.find(t => String(t.id) === editId)
+    return (
+      <DashLayout kind={kind}>
+        <style>{css}</style>
+        <div className="tt-edit-head">
+          <button className="tt-back" onClick={() => open(null)} aria-label="Testlarga qaytish"><Icon name="arrowL" size={18} /></button>
+          <h1>{current?.title || 'Test'}</h1>
+          {current && <span className={`badge badge-${current.is_public ? 'green' : 'gray'}`}>{current.is_public ? 'Ommaga ochiq' : 'Yopiq'}</span>}
+        </div>
+        <div className="tt-panel">
+          <TestEditor key={editId} testId={Number(editId)} standalone onChanged={refresh} />
+        </div>
+      </DashLayout>
+    )
+  }
+
+  /* ── list view ── */
   const q = search.trim().toLowerCase()
-  const filtered = allTests
-    .filter(t => !vis || (vis === 'public' ? t.is_public : !t.is_public))
-    .filter(t => !q || (t.title || '').toLowerCase().includes(q))
-  const total = filtered.length
-  const tests = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-
-  const del = useMutation({
-    mutationFn: (id) => api.delete(`/tests/${id}/`),
-    onSuccess: () => { qc.invalidateQueries(['my-standalone-tests']); toast.success("O'chirildi") },
-    onError: () => toast.error("O'chirib bo'lmadi"),
-  })
-
-  const kind = user?.role === 'admin' ? 'admin' : 'teacher'
+  const shown = tests.filter(t =>
+    (filter === 'all' || (filter === 'public' ? t.is_public : !t.is_public))
+    && (!q || t.title.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q)))
+  const nPublic = tests.filter(t => t.is_public).length
 
   return (
     <DashLayout kind={kind}>
-      <style>{styles}</style>
-      <PageHead
-        title="Mustaqil testlar"
-        sub={`Kursga bog'lanmagan testlar — "Testlar" bo'limida barcha foydalanuvchilarga ko'rinadi.${user?.role === 'admin' ? " (Admin sifatida barcha testlarni ko'rasiz.)" : ''}`}>
-        {!creating && (
-          <button className="btn btn-primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={15} /> Yangi test
-          </button>
-        )}
+      <style>{css}</style>
+      <PageHead title="Testlar" sub="«Testlar» katalogi uchun mustaqil testlar. Kurs ichidagi testlar kurs studiyasida tahrirlanadi.">
+        <button className="btn btn-primary" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Yangi test</button>
       </PageHead>
 
-      {creating && (
-        <TestForm onClose={() => setCreating(false)}
-          onSaved={(saved) => { setCreating(false); setEditingId(saved.id); qc.invalidateQueries(['my-standalone-tests']) }} />
-      )}
-
-      {allTests.length > 0 && (
-        <FilterBar search={search} onSearch={v => { setSearch(v); setPage(1) }}
-          placeholder="Test qidirish…" count={total}>
-          <select className="select" value={vis} onChange={e => { setVis(e.target.value); setPage(1) }}>
-            <option value="">Barcha holatlar</option>
-            <option value="public">Ommaviy</option>
-            <option value="hidden">Yashirin</option>
-          </select>
-        </FilterBar>
-      )}
+      <div className="tt-bar">
+        <div className="search-box">
+          <Icon name="search" size={16} />
+          <input className="input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Test nomi bo'yicha qidirish…" />
+        </div>
+        <div className="seg-tabs">
+          {[['all', 'Hammasi', tests.length], ['public', 'Ochiq', nPublic], ['private', 'Yopiq', tests.length - nPublic]].map(([id, label, n]) => (
+            <button key={id} className={filter === id ? 'on' : ''} onClick={() => setFilter(id)}>{label}<span className="n">{n}</span></button>
+          ))}
+        </div>
+      </div>
 
       {isLoading ? (
         <div className="loading-state"><span className="spinner" />Yuklanmoqda…</div>
-      ) : allTests.length === 0 && !creating ? (
-        <div className="card" style={{ padding: 0 }}>
-          <EmptyState icon="fileText" title="Hozircha testlar yo'q"
-            sub={`Birinchi mustaqil testingizni yarating — o'quvchilar uni "Testlar" bo'limida topadi.`}
-            action={
-              <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>
-                <Icon name="plus" size={13} /> Test yaratish
-              </button>
-            } />
-        </div>
-      ) : tests.length === 0 && !creating ? (
-        <div className="card" style={{ padding: 0 }}>
-          <EmptyState icon="search" title="Hech narsa topilmadi" sub="Qidiruv so'zini o'zgartirib ko'ring." />
+      ) : isError ? (
+        <div className="card"><EmptyState icon="alert" title="Testlarni yuklab bo'lmadi"
+          action={<button className="btn btn-secondary btn-sm" onClick={() => refetch()}>Qayta urinish</button>} /></div>
+      ) : shown.length === 0 ? (
+        <div className="card">
+          <EmptyState icon="fileText" title={tests.length ? 'Hech narsa topilmadi' : "Hali test yo'q"}
+            sub={tests.length ? "Qidiruv yoki filtrni o'zgartirib ko'ring." : "Birinchi testingizni yarating: savollarni qo'lda kiriting yoki tayyor matndan import qiling."}
+            action={!tests.length && <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}><Icon name="plus" size={13} /> Test yaratish</button>} />
         </div>
       ) : (
-        <>
-          {tests.map(t => (
-            <TestRow key={t.id} test={t}
-              open={editingId === t.id}
-              onToggle={() => setEditingId(editingId === t.id ? null : t.id)}
-              onDelete={() => { if (confirm(`"${t.title}" testini o'chirishni tasdiqlaysizmi?`)) del.mutate(t.id) }}
-            />
+        <div className="tt-grid">
+          {shown.map(t => (
+            <div key={t.id} className="tt-card" onClick={() => open(t.id)}>
+              <div className="tt-card-top">
+                <span className="tt-ico">{t.category?.icon || <Icon name="fileText" size={20} />}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <h3>{t.title}</h3>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 7 }}>
+                    <span className={`badge badge-${t.is_public ? 'green' : 'gray'}`}>{t.is_public ? 'Ommaga ochiq' : 'Yopiq'}</span>
+                    {t.category && <span className="badge badge-blue">{t.category.name}</span>}
+                    {!t.question_count && <span className="badge badge-amber">Savol yo'q</span>}
+                    {kind === 'admin' && t.created_by && <span className="badge badge-gray">{t.created_by.display_name}</span>}
+                  </div>
+                </div>
+              </div>
+              {t.description && <div className="tt-desc">{t.description}</div>}
+              <div className="tt-meta">
+                <div><b>{t.question_count}</b><span>savol</span></div>
+                <div><b>{t.time_limit_minutes || '∞'}</b><span>{t.time_limit_minutes ? 'daqiqa' : 'vaqt'}</span></div>
+                <div><b>{t.attempt_count}</b><span>urinish</span></div>
+              </div>
+              <div className="tt-foot" onClick={e => e.stopPropagation()}>
+                <button className="btn btn-primary btn-sm" onClick={() => open(t.id)}><Icon name="edit" size={13} /> Tahrirlash</button>
+                <span className="sp" />
+                <button className="icon-btn" title={t.is_public ? 'Yopish' : 'Ommaga ochish'} onClick={() => togglePublic(t)}>
+                  <Icon name={t.is_public ? 'lock' : 'globe'} size={15} />
+                </button>
+                {t.question_count > 0 && <Link to={`/tests/${t.id}/take`} target="_blank" className="icon-btn" title="Sinab ko'rish"><Icon name="play" size={15} /></Link>}
+                <button className="icon-btn" title="Nusxalash" onClick={() => duplicate(t)}><Icon name="file" size={15} /></button>
+                <button className="icon-btn danger" title="O'chirish" onClick={() => setToDelete(t)}><Icon name="trash" size={15} /></button>
+              </div>
+            </div>
           ))}
-          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
-        </>
+        </div>
+      )}
+
+      {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); refresh(); open(id) }} />}
+      {toDelete && (
+        <Confirm danger title="Testni o'chirish" confirmLabel="O'chirish" busy={busy}
+          text={`«${toDelete.title}» testi ${toDelete.question_count} ta savoli${toDelete.attempt_count ? ` va ${toDelete.attempt_count} ta urinish natijasi` : ''} bilan birga o'chiriladi.`}
+          onConfirm={remove} onClose={() => setToDelete(null)} />
       )}
     </DashLayout>
-  )
-}
-
-function TestRow({ test, open, onToggle, onDelete }) {
-  const qc = useQueryClient()
-  const [editingMeta, setEditingMeta] = useState(false)
-
-  return (
-    <div className="tt-card">
-      <div className="tt-head" onClick={onToggle}>
-        <div className="tt-ic"><Icon name="fileText" size={19} /></div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 620, letterSpacing: '-0.015em', fontSize: 14.5 }}>{test.title}</div>
-          <div className="tt-meta mt-1">
-            {test.question_count} SAVOL · O'TISH {test.pass_percent}%
-            {test.time_limit_minutes ? ` · ${test.time_limit_minutes} DAQ` : ''}
-            {test.attempt_count > 0 ? ` · ${test.attempt_count} URINISH` : ''}
-          </div>
-        </div>
-        <span className={`badge badge-${test.is_public ? 'green' : 'gray'}`}>
-          {test.is_public ? 'Ommaviy' : 'Yashirin'}
-        </span>
-        <button className="icon-btn" onClick={e => { e.stopPropagation(); setEditingMeta(true); if (!open) onToggle() }} title="Sozlamalar">
-          <Icon name="settings" size={15} />
-        </button>
-        <button className="icon-btn" onClick={e => { e.stopPropagation(); onDelete() }} title="O'chirish">
-          <Icon name="trash" size={15} />
-        </button>
-        <Icon name={open ? 'chevU' : 'chevD'} size={16} style={{ color: 'var(--text-3)' }} />
-      </div>
-
-      {open && (
-        <div className="tt-body">
-          {editingMeta ? (
-            <TestForm test={test} onClose={() => setEditingMeta(false)}
-              onSaved={() => { setEditingMeta(false); qc.invalidateQueries(['my-standalone-tests']) }} />
-          ) : (
-            <QuestionManager testId={test.id} />
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function TestForm({ test, onClose, onSaved }) {
-  const [title, setTitle] = useState(test?.title || '')
-  const [description, setDescription] = useState(test?.description || '')
-  const [category, setCategory] = useState(test?.category?.id || '')
-  const [pass, setPass] = useState(test?.pass_percent ?? 60)
-  const [time, setTime] = useState(test?.time_limit_minutes || '')
-  const [isPublic, setIsPublic] = useState(test?.is_public ?? false)
-  const [busy, setBusy] = useState(false)
-
-  const { data: cats = [] } = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => api.get('/categories/').then(r => r.data.results || r.data),
-  })
-
-  async function save() {
-    setBusy(true)
-    try {
-      const payload = {
-        title: title.trim(), description,
-        category: category || null,
-        pass_percent: pass, time_limit_minutes: time || null,
-        is_public: isPublic,
-      }
-      let saved
-      if (test?.id) {
-        const { data } = await api.patch(`/tests/${test.id}/`, payload); saved = data
-      } else {
-        const { data } = await api.post('/tests/', payload); saved = data
-      }
-      toast.success('Saqlandi')
-      onSaved(saved)
-    } catch { toast.error('Saqlashda xatolik') }
-    finally { setBusy(false) }
-  }
-
-  return (
-    <div className="card" style={{ padding: 24, marginBottom: 16, border: '1.5px solid var(--green-300)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <strong style={{ fontFamily: 'var(--font-display)', fontSize: 16 }}>
-          {test ? 'Test sozlamalari' : 'Yangi test'}
-        </strong>
-        <button className="icon-btn" onClick={onClose}><Icon name="x" size={16} /></button>
-      </div>
-      <input className="tt-input-lg" autoFocus value={title} onChange={e => setTitle(e.target.value)}
-        placeholder="Test nomi (masalan, Dunyo poytaxtlari)" />
-      <div className="field" style={{ marginTop: 16 }}>
-        <label className="label">Tavsif</label>
-        <textarea className="textarea" rows={2} value={description} onChange={e => setDescription(e.target.value)}
-          placeholder="Test nima haqida — o'quvchilar kartochkada ko'radi" />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-        <div className="field">
-          <label className="label">Kategoriya</label>
-          <select className="select" value={category} onChange={e => setCategory(e.target.value)}>
-            <option value="">— Tanlash —</option>
-            {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label className="label">O'tish bali (%)</label>
-          <input className="input" type="number" min={0} max={100} value={pass} onChange={e => setPass(e.target.value)} />
-        </div>
-        <div className="field">
-          <label className="label">Vaqt (daq, ixtiyoriy)</label>
-          <input className="input" type="number" min={1} value={time} onChange={e => setTime(e.target.value)} placeholder="Cheksiz" />
-        </div>
-      </div>
-      <label className="checkbox" style={{ marginBottom: 16 }}>
-        <input type="checkbox" checked={isPublic} onChange={e => setIsPublic(e.target.checked)} />
-        Ommaviy — "Testlar" bo'limida hammaga ko'rinsin
-      </label>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button className="btn btn-secondary btn-sm" onClick={onClose}>Bekor</button>
-        <button className="btn btn-primary btn-sm" disabled={busy || !title.trim()} onClick={save}>
-          {busy ? 'Saqlanmoqda…' : 'Saqlash'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function QuestionManager({ testId }) {
-  const [editing, setEditing] = useState(null) // questionId | 'new' | null
-
-  const { data: details, refetch } = useQuery({
-    queryKey: ['test-questions', testId],
-    queryFn: () => api.get(`/tests/${testId}/detail/`).then(r => r.data),
-  })
-
-  async function delQ(qid) {
-    if (!confirm("Savolni o'chirish?")) return
-    await api.delete(`/questions/${qid}/`)
-    refetch()
-    toast.success("O'chirildi")
-  }
-
-  const questions = details?.questions || []
-
-  return (
-    <div>
-      {questions.length === 0 && editing !== 'new' && (
-        <div className="text-sm text-muted" style={{ textAlign: 'center', padding: '12px 0' }}>
-          Hali savollar yo'q — birinchi savolni qo'shing.
-        </div>
-      )}
-
-      {questions.map((q, i) => (
-        editing === q.id ? (
-          <QuestionForm key={q.id} testId={testId} question={q}
-            onClose={() => setEditing(null)}
-            onSaved={() => { setEditing(null); refetch() }} />
-        ) : (
-          <div key={q.id} className="tt-q">
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <span style={{ width: 24, height: 24, borderRadius: 999, background: 'var(--green-50)', color: 'var(--green-600)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
-              <div style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{q.text}</div>
-              <button className="icon-btn" onClick={() => setEditing(q.id)}><Icon name="edit" size={13} /></button>
-              <button className="icon-btn" onClick={() => delQ(q.id)}><Icon name="trash" size={13} /></button>
-            </div>
-            <div className="text-xs text-muted mt-2" style={{ paddingLeft: 34, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="badge badge-gray" style={{ fontSize: 10 }}>
-                {(Q_TYPES.find(t => t.id === (q.question_type || 'single')) || Q_TYPES[0]).label}
-              </span>
-              {q.question_type === 'text'
-                ? `${q.options.length} ta qabul qilinadigan javob`
-                : `${q.options.length} variant`}
-            </div>
-          </div>
-        )
-      ))}
-
-      {editing === 'new' && (
-        <QuestionForm testId={testId} question={null}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); refetch() }} />
-      )}
-
-      {editing !== 'new' && (
-        <button className="btn btn-secondary btn-sm" onClick={() => setEditing('new')}>
-          <Icon name="plus" size={14} /> Savol qo'shish
-        </button>
-      )}
-    </div>
-  )
-}
-
-const Q_TYPES = [
-  { id: 'single', label: "Bitta to'g'ri javob", icon: 'checkC' },
-  { id: 'multiple', label: "Bir nechta to'g'ri", icon: 'list' },
-  { id: 'true_false', label: "To'g'ri / Noto'g'ri", icon: 'shield' },
-  { id: 'text', label: 'Yozma javob', icon: 'edit' },
-]
-
-const defaultOptions = {
-  single: () => [0, 1, 2, 3].map(i => ({ text: '', is_correct: i === 0, order: i })),
-  multiple: () => [0, 1, 2, 3].map(i => ({ text: '', is_correct: i === 0, order: i })),
-  true_false: () => [
-    { text: "To'g'ri", is_correct: true, order: 0 },
-    { text: "Noto'g'ri", is_correct: false, order: 1 },
-  ],
-  text: () => [{ text: '', is_correct: true, order: 0 }],
-}
-
-function QuestionForm({ testId, question, onClose, onSaved }) {
-  const [text, setText] = useState(question?.text || '')
-  const [qtype, setQtype] = useState(question?.question_type || 'single')
-  const [options, setOptions] = useState(() => {
-    if (question?.options?.length) {
-      const opts = question.options.map((o, i) => ({ text: o.text, is_correct: !!o.is_correct, order: i }))
-      if (!opts.some(o => o.is_correct)) opts[0].is_correct = true
-      return opts
-    }
-    return defaultOptions[question?.question_type || 'single']()
-  })
-  const [busy, setBusy] = useState(false)
-
-  function switchType(t) {
-    if (t === qtype) return
-    setQtype(t)
-    // Keep typed variants when staying in the choice family, otherwise reset.
-    if ((t === 'single' || t === 'multiple') && (qtype === 'single' || qtype === 'multiple')) {
-      if (t === 'single') {
-        const firstCorrect = options.findIndex(o => o.is_correct)
-        setOptions(options.map((o, i) => ({ ...o, is_correct: i === Math.max(firstCorrect, 0) })))
-      }
-      return
-    }
-    setOptions(defaultOptions[t]())
-  }
-
-  const setOpt = (i, patch) => setOptions(options.map((o, idx) => idx === i ? { ...o, ...patch } : o))
-  const mark = (i) => {
-    if (qtype === 'multiple') setOpt(i, { is_correct: !options[i].is_correct })
-    else setOptions(options.map((o, idx) => ({ ...o, is_correct: idx === i })))
-  }
-  const addOpt = () => setOptions([...options, { text: '', is_correct: qtype === 'text', order: options.length }])
-  const delOpt = (i) => {
-    const next = options.filter((_, idx) => idx !== i).map((o, idx) => ({ ...o, order: idx }))
-    if (qtype !== 'text' && !next.some(o => o.is_correct) && next.length) next[0].is_correct = true
-    setOptions(next)
-  }
-
-  const maxOpts = qtype === 'text' ? 6 : 8
-  const minOpts = qtype === 'text' ? 1 : 2
-  const canAdd = (qtype === 'single' || qtype === 'multiple' || qtype === 'text') && options.length < maxOpts
-
-  const valid = text.trim()
-    && options.every(o => o.text.trim())
-    && options.some(o => o.is_correct)
-    && options.length >= minOpts
-
-  async function save() {
-    setBusy(true)
-    try {
-      const payload = { text, question_type: qtype, order: question?.order || 0, options }
-      if (question?.id) await api.patch(`/questions/${question.id}/`, payload)
-      else await api.post(`/tests/${testId}/questions/`, payload)
-      toast.success('Saqlandi')
-      onSaved()
-    } catch { toast.error('Xatolik') }
-    finally { setBusy(false) }
-  }
-
-  return (
-    <div className="tt-q" style={{ border: '1.5px solid var(--green-600)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <span className="badge badge-green">SAVOL</span>
-        <button className="icon-btn" onClick={onClose}><Icon name="x" size={15} /></button>
-      </div>
-      <textarea className="tt-input-lg" rows={2} autoFocus value={text} onChange={e => setText(e.target.value)}
-        placeholder="Savol matni" style={{ resize: 'vertical', minHeight: 46 }} />
-
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-        {Q_TYPES.map(t => (
-          <button key={t.id} type="button" onClick={() => switchType(t.id)}
-            className={`btn btn-sm ${qtype === t.id ? 'btn-primary' : 'btn-secondary'}`}>
-            <Icon name={t.icon} size={13} /> {t.label}
-          </button>
-        ))}
-      </div>
-
-      {qtype === 'multiple' && (
-        <div className="text-xs text-muted" style={{ marginTop: 10 }}>
-          Bir nechta to'g'ri javobni belgilang — o'quvchi aynan shularning hammasini tanlasagina javob to'g'ri hisoblanadi.
-        </div>
-      )}
-      {qtype === 'text' && (
-        <div className="text-xs text-muted" style={{ marginTop: 10 }}>
-          Qabul qilinadigan javob(lar)ni kiriting. Katta-kichik harf farqi hisobga olinmaydi.
-        </div>
-      )}
-
-      <div style={{ marginTop: 14 }}>
-        {options.map((o, i) => (
-          <div key={i} className={`tt-q-opt ${o.is_correct ? 'correct' : ''}`}>
-            {qtype === 'text' ? (
-              <span className="tt-q-marker" style={{ background: 'var(--green-600)', borderColor: 'var(--green-600)', color: 'white', cursor: 'default' }}>
-                <Icon name="check" size={13} />
-              </span>
-            ) : (
-              <button type="button" onClick={() => mark(i)} className="tt-q-marker"
-                style={qtype === 'multiple' ? { borderRadius: 8 } : {}}
-                title={qtype === 'multiple' ? "To'g'ri javoblardan biri deb belgilash" : "To'g'ri javob deb belgilash"}>
-                {o.is_correct && qtype === 'multiple' ? <Icon name="check" size={13} /> : String.fromCharCode(65 + i)}
-              </button>
-            )}
-            <input value={o.text} onChange={e => setOpt(i, { text: e.target.value })}
-              readOnly={qtype === 'true_false'}
-              placeholder={qtype === 'text' ? `Qabul qilinadigan javob ${i + 1}` : `Variant ${String.fromCharCode(65 + i)}`} />
-            {o.is_correct && <span className="badge badge-green" style={{ fontSize: 10 }}>To'g'ri</span>}
-            {qtype !== 'true_false' && options.length > minOpts && (
-              <button type="button" className="icon-btn" onClick={() => delOpt(i)} title="O'chirish">
-                <Icon name="x" size={13} />
-              </button>
-            )}
-          </div>
-        ))}
-        {canAdd && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={addOpt}>
-            <Icon name="plus" size={13} /> {qtype === 'text' ? "Muqobil javob qo'shish" : "Variant qo'shish"}
-          </button>
-        )}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-        <button className="btn btn-secondary btn-sm" onClick={onClose}>Bekor</button>
-        <button className="btn btn-primary btn-sm" disabled={busy || !valid} onClick={save}>
-          {busy ? 'Saqlanmoqda…' : 'Saqlash'}
-        </button>
-      </div>
-    </div>
   )
 }

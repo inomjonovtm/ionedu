@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { useAuth } from '../../store/auth'
 import PhoneInput from '../../components/PhoneInput'
 import GoogleButton from '../../components/GoogleButton'
+import AuthShell, { PasswordInput, VerifyEmailStep } from '../../components/AuthShell'
 import Icon from '../../components/Icon'
 
 const REGIONS = [
@@ -11,90 +12,6 @@ const REGIONS = [
   'Namangan', 'Navoiy', 'Qashqadaryo', "Qoraqalpog'iston", 'Samarqand',
   'Sirdaryo', 'Surxondaryo', 'Xorazm',
 ]
-
-const css = `
-  .auth-page {
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 18px 16px; position: relative; overflow: auto;
-    background:
-      radial-gradient(60% 50% at 50% -6%, var(--green-50), transparent 62%),
-      radial-gradient(46% 42% at 102% 104%, rgba(37,99,235,.07), transparent 60%),
-      var(--paper);
-  }
-  .auth-card {
-    width: 100%; max-width: 480px; position: relative; z-index: 1;
-    background: var(--white); border: 1px solid var(--border); border-radius: 22px;
-    padding: 22px 26px 18px; box-shadow: var(--shadow-pop);
-  }
-  .auth-brand {
-    display: inline-flex; align-items: center; gap: 10px;
-    font-family: var(--font-display); font-weight: 700; font-size: 20px;
-    letter-spacing: -0.04em; color: var(--text); text-decoration: none;
-  }
-  .auth-brand .mark {
-    width: 32px; height: 32px; border-radius: 10px; background: var(--green-600);
-    color: white; display: flex; align-items: center; justify-content: center;
-  }
-  .auth-brand .accent { color: var(--green-600); }
-
-  .auth-head { text-align: center; margin: 12px 0 14px; }
-  .auth-head h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 4px; }
-  .auth-head p { font-size: 13px; color: var(--text-3); line-height: 1.45; }
-
-  /* Role cards */
-  .role-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-  .role-card {
-    position: relative; padding: 11px 13px; border: 1px solid var(--border); border-radius: 14px;
-    background: var(--white); cursor: pointer; text-align: left; transition: all .18s ease;
-  }
-  .role-card:hover { border-color: #CFD3CE; box-shadow: var(--shadow-soft); }
-  .role-card.active { border-color: var(--green-600); background: var(--green-50); box-shadow: inset 0 0 0 1px var(--green-600); }
-  .role-card.active::after {
-    content: '✓'; position: absolute; top: 12px; right: 14px;
-    width: 21px; height: 21px; border-radius: 999px; background: var(--green-600); color: white;
-    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;
-  }
-  .role-card .ico {
-    width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
-    margin-bottom: 7px; background: var(--bg-soft); color: var(--text-2); transition: all .18s;
-  }
-  .role-card.active .ico { background: var(--green-600); color: white; }
-  .role-card .nm { font-family: var(--font-display); font-weight: 650; font-size: 14px; letter-spacing: -0.015em; color: var(--text); margin-bottom: 2px; }
-  .role-card .ds { font-size: 11.5px; color: var(--text-3); line-height: 1.4; }
-
-  .step-bar { display: flex; gap: 6px; margin-bottom: 14px; }
-  .step-bar .s { flex: 1; height: 4px; border-radius: 999px; background: var(--border); transition: background .2s ease; }
-  .step-bar .s.active { background: var(--green-600); }
-
-  .field { margin-bottom: 10px; }
-  .field .label { font-size: 12.5px; font-weight: 560; color: var(--text-2); margin-bottom: 5px; }
-  .field .input, .field .select { height: 41px; font-size: 14px; border-radius: 11px; }
-  .field .textarea { height: auto; border-radius: 12px; }
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  @media (max-width: 480px) { .grid-2 { grid-template-columns: 1fr; } }
-
-  .terms { font-size: 12.5px; color: var(--text-3); margin: 6px 0 12px; line-height: 1.5; }
-  .terms a { color: var(--green-700); font-weight: 500; }
-
-  .auth-cta {
-    width: 100%; height: 44px; border-radius: 999px; font-weight: 560; font-size: 14.5px;
-    background: var(--ink); color: white; border: none; cursor: pointer;
-    transition: background .18s ease, transform .12s ease;
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  }
-  .auth-cta:hover { background: var(--ink-2); }
-  .auth-cta:active { transform: scale(0.985); }
-  .auth-cta:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-  .btn-ghost-step {
-    height: 44px; padding: 0 18px; border-radius: 999px; font-weight: 500; font-size: 14px;
-    background: var(--bg-soft); color: var(--text-2); border: 1px solid var(--border); cursor: pointer;
-    transition: all .15s ease;
-  }
-  .btn-ghost-step:hover { background: var(--border-2); }
-
-  .auth-foot { text-align: center; font-size: 13.5px; color: var(--text-3); margin-top: 14px; }
-  .auth-foot a { color: var(--green-700); font-weight: 560; }
-`
 
 export default function Register() {
   const [role, setRole] = useState('student')
@@ -108,6 +25,7 @@ export default function Register() {
   })
   const [busy, setBusy] = useState(false)
   const [agreed, setAgreed] = useState(false)
+  const [pending, setPending] = useState(null) // { email, resend_in, debug_code }
   const register = useAuth(s => s.register)
   const user = useAuth(s => s.user)
   const navigate = useNavigate()
@@ -145,15 +63,21 @@ export default function Register() {
       }
       if (!payload.birth_year) delete payload.birth_year
       if (!payload.experience_years) delete payload.experience_years
-      await register(payload)
-      toast.success("Akkaunt yaratildi! Xush kelibsiz.")
-      navigate('/', { replace: true })
+      const res = await register(payload)
+      if (res.verification_required) {
+        setPending(res)
+        setStep(3)
+        toast.success('Tasdiqlash kodi emailingizga yuborildi')
+      } else {
+        navigate('/', { replace: true })
+      }
     } catch (e) {
       const d = e.response?.data
       const msg = typeof d === 'object'
-        ? (d?.email?.[0] || d?.phone?.[0] || d?.password?.[0] || d?.full_name?.[0] || Object.values(d).flat()[0])
-        : "Xatolik"
+        ? (d?.email?.[0] || d?.phone?.[0] || d?.password?.[0] || d?.full_name?.[0] || d?.detail || Object.values(d).flat()[0])
+        : (e.response ? 'Xatolik yuz berdi' : "Server bilan aloqa yo'q")
       toast.error(String(msg))
+      if (d?.email || d?.phone || d?.password || d?.full_name) setStep(1)
     } finally { setBusy(false) }
   }
 
@@ -167,55 +91,59 @@ export default function Register() {
     }
   }
 
+  const STEPS = ['Akkaunt', "Ma'lumot", 'Tasdiqlash']
+
   return (
-    <>
-      <style>{css}</style>
-      <div className="auth-page">
-        <div className="auth-card fade-up">
-          <div style={{ textAlign: 'center' }}>
-            <Link to="/" className="auth-brand">
-              <span className="mark">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    <AuthShell wide headline={<>Dunyoni <em>kashf etishni</em> boshlang.</>}
+      text="Bepul akkaunt oching: video darslar, testlar, o'yinlar va sertifikatlar bir joyda.">
+          <div className="au-steps">
+            {STEPS.map((label, i) => (
+              <span key={label} style={{ display: 'contents' }}>
+                {i > 0 && <span className="ln" />}
+                <span className={`st ${step === i + 1 ? 'on' : step > i + 1 ? 'done' : ''}`}>
+                  <b>{step > i + 1 ? <Icon name="check" size={13} /> : i + 1}</b>{label}
+                </span>
               </span>
-              Ion<span className="accent">edu</span>
-            </Link>
+            ))}
           </div>
 
-          <div className="auth-head">
-            <h1>{step === 1 ? "Akkaunt yaratish" : (role === 'teacher' ? "O'qituvchi ma'lumotlari" : "O'quvchi ma'lumotlari")}</h1>
-            <p>{step === 1
-              ? 'Avval kim ekanligingizni tanlang'
-              : (role === 'teacher'
-                ? "Tajribangiz haqida — o'quvchilar sizni tanlashi uchun"
-                : "Sizga moslashtirish uchun bir nechta ma'lumot")}
-            </p>
-          </div>
+          {step === 3 && pending && (
+            <VerifyEmailStep email={pending.email} initialWait={pending.resend_in} debugCode={pending.debug_code}
+              onVerified={() => navigate('/', { replace: true })}
+              onBack={() => { setPending(null); setStep(1) }} />
+          )}
 
-          <div className="step-bar">
-            <div className={`s ${step >= 1 ? 'active' : ''}`}></div>
-            <div className={`s ${step >= 2 ? 'active' : ''}`}></div>
-          </div>
+          {step < 3 && (
+            <>
+              <h1 className="au-title">
+                {step === 1 ? <>Akkaunt <span className="mark-sun">yaratish</span></>
+                  : role === 'teacher' ? "O'qituvchi ma'lumotlari" : "O'zingiz haqingizda"}
+              </h1>
+              <p className="au-sub">{step === 1
+                ? 'Avval kim ekanligingizni tanlang.'
+                : (role === 'teacher'
+                  ? "Tajribangiz haqida yozing — o'quvchilar sizni shu orqali taniydi."
+                  : "Bu ma'lumotlar reyting va sertifikat uchun kerak. Keyin ham o'zgartirish mumkin.")}
+              </p>
+            </>
+          )}
 
           {step === 1 && (
             <>
-              <div className="role-cards">
-                <button type="button" className={`role-card student ${role === 'student' ? 'active' : ''}`} onClick={() => setRole('student')}>
-                  <div className="ico"><Icon name="user" size={20} /></div>
-                  <div className="nm">O'quvchiman</div>
-                  <div className="ds">Kurslarni o'rganaman, sertifikat olaman</div>
+              <div className="au-roles">
+                <button type="button" className={`au-role ${role === 'student' ? 'on' : ''}`} onClick={() => setRole('student')}>
+                  <span className="em">🎒</span>
+                  <span><span className="nm" style={{ display: 'block' }}>O'quvchiman</span><span className="ds" style={{ display: 'block' }}>O'rganaman, sertifikat olaman</span></span>
                 </button>
-                <button type="button" className={`role-card teacher ${role === 'teacher' ? 'active' : ''}`} onClick={() => setRole('teacher')}>
-                  <div className="ico"><Icon name="users" size={20} /></div>
-                  <div className="nm">O'qituvchiman</div>
-                  <div className="ds">O'z kursimni yarataman, o'qitaman</div>
+                <button type="button" className={`au-role ${role === 'teacher' ? 'on' : ''}`} onClick={() => setRole('teacher')}>
+                  <span className="em">🧑‍🏫</span>
+                  <span><span className="nm" style={{ display: 'block' }}>O'qituvchiman</span><span className="ds" style={{ display: 'block' }}>Kurs yarataman, o'qitaman</span></span>
                 </button>
               </div>
 
               <GoogleButton text="signup_with" />
-              <div className="auth-divider">yoki</div>
-
               <form onSubmit={handleNext}>
-                <div className="grid-2">
+                <div className="au-grid2">
                   <div className="field">
                     <label className="label">To'liq ism</label>
                     <input className="input" value={form.full_name} onChange={e => set('full_name', e.target.value)}
@@ -226,7 +154,7 @@ export default function Register() {
                     <PhoneInput value={form.phone} onChange={v => set('phone', v)} />
                   </div>
                 </div>
-                <div className="grid-2">
+                <div className="au-grid2">
                   <div className="field">
                     <label className="label">Email</label>
                     <input type="email" className="input" value={form.email} onChange={e => set('email', e.target.value)}
@@ -234,13 +162,13 @@ export default function Register() {
                   </div>
                   <div className="field">
                     <label className="label">Parol</label>
-                    <input type="password" className="input" value={form.password} onChange={e => set('password', e.target.value)}
-                      placeholder="Kamida 6 ta belgi" required minLength={6} />
+                    <PasswordInput value={form.password} onChange={v => set('password', v)} meter
+                      placeholder="Kamida 6 ta belgi" required minLength={6} autoComplete="new-password" />
                   </div>
                 </div>
 
-                <button type="submit" className="auth-cta" disabled={busy || !step1Valid()}>
-                  Keyingi qadam <Icon name="arrowR" size={14} />
+                <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={busy || !step1Valid()}>
+                  Keyingi qadam <Icon name="arrowR" size={17} />
                 </button>
               </form>
             </>
@@ -248,7 +176,7 @@ export default function Register() {
 
           {step === 2 && role === 'student' && (
             <form onSubmit={handleNext}>
-              <div className="grid-2">
+              <div className="au-grid2">
                 <div className="field">
                   <label className="label">Tug'ilgan yil</label>
                   <input className="input" type="number" min={1980} max={new Date().getFullYear()}
@@ -273,17 +201,17 @@ export default function Register() {
                   placeholder="Masalan, 1-IDUM" />
               </div>
 
-              <div className="terms">
+              <div style={{ fontSize: 13, margin: "8px 0 16px" }}>
                 <label className="checkbox" style={{ alignItems: 'start' }}>
                   <input type="checkbox" style={{ marginTop: 3 }} checked={agreed} onChange={e => setAgreed(e.target.checked)} />
-                  <span>Men <a href="#">foydalanish shartlari</a> va <a href="#">maxfiylik siyosati</a>ga roziman</span>
+                  <span>Men foydalanish shartlari va maxfiylik siyosatiga roziman</span>
                 </label>
               </div>
 
               <div style={{ display: 'flex', gap: 10 }}>
-                <button type="button" className="btn-ghost-step" onClick={() => setStep(1)}><Icon name="arrowL" size={14} /></button>
-                <button type="submit" className="auth-cta" disabled={busy || !agreed}>
-                  {busy ? 'Yaratilmoqda…' : "Akkaunt yaratish"}
+                <button type="button" className="btn btn-secondary btn-lg" onClick={() => setStep(1)} aria-label="Orqaga"><Icon name="arrowL" size={17} /></button>
+                <button type="submit" className="btn btn-primary btn-lg" style={{ flex: 1 }} disabled={busy || !agreed}>
+                  {busy ? 'Yaratilmoqda…' : 'Akkaunt yaratish'}
                 </button>
               </div>
             </form>
@@ -296,7 +224,7 @@ export default function Register() {
                 <input className="input" value={form.specialty} onChange={e => set('specialty', e.target.value)}
                   placeholder="Masalan: Fizik geografiya o'qituvchisi" required />
               </div>
-              <div className="grid-2">
+              <div className="au-grid2">
                 <div className="field">
                   <label className="label">Tajriba (yil)</label>
                   <input className="input" type="number" min={0} max={60}
@@ -321,27 +249,27 @@ export default function Register() {
                   placeholder="O'quvchilarga sizni tanitadigan qisqacha matn — o'qitish uslubingiz, yutuqlaringiz…" />
               </div>
 
-              <div className="terms">
+              <div style={{ fontSize: 13, margin: "8px 0 16px" }}>
                 <label className="checkbox" style={{ alignItems: 'start' }}>
                   <input type="checkbox" style={{ marginTop: 3 }} checked={agreed} onChange={e => setAgreed(e.target.checked)} />
-                  <span>Men <a href="#">foydalanish shartlari</a> va <a href="#">maxfiylik siyosati</a>ga roziman</span>
+                  <span>Men foydalanish shartlari va maxfiylik siyosatiga roziman</span>
                 </label>
               </div>
 
               <div style={{ display: 'flex', gap: 10 }}>
-                <button type="button" className="btn-ghost-step" onClick={() => setStep(1)}><Icon name="arrowL" size={14} /></button>
-                <button type="submit" className="auth-cta" disabled={busy || !agreed}>
-                  {busy ? 'Yaratilmoqda…' : "Akkaunt yaratish"}
+                <button type="button" className="btn btn-secondary btn-lg" onClick={() => setStep(1)} aria-label="Orqaga"><Icon name="arrowL" size={17} /></button>
+                <button type="submit" className="btn btn-primary btn-lg" style={{ flex: 1 }} disabled={busy || !agreed}>
+                  {busy ? 'Yaratilmoqda…' : 'Akkaunt yaratish'}
                 </button>
               </div>
             </form>
           )}
 
-          <div className="auth-foot">
-            Allaqachon akkaunt bormi? <Link to="/auth/login">Kirish</Link>
-          </div>
-        </div>
-      </div>
-    </>
+          {step < 3 && (
+            <div className="au-foot">
+              Allaqachon akkaunt bormi? <Link to="/auth/login">Kirish</Link>
+            </div>
+          )}
+    </AuthShell>
   )
 }

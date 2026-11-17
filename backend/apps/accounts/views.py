@@ -18,25 +18,38 @@ User = get_user_model()
 
 
 class RegisterView(generics.CreateAPIView):
+    """Sign-up step 1: create an unverified account and email a 6-digit code.
+    Tokens are issued only after /auth/verify-email/ confirms the code."""
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
     def create(self, request, *args, **kwargs):
+        from .auth_extra import verification_response
+        email = (request.data.get('email') or '').strip().lower()
+        # An abandoned, never-verified sign-up must not block the address forever.
+        stale = User.objects.filter(email__iexact=email, is_verified=False, last_login__isnull=True).first()
+        if stale and not stale.is_staff:
+            stale.delete()
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
         user = ser.save()
-        refresh = RefreshToken.for_user(user)
-        return Response({
-            'user': UserSerializer(user, context={'request': request}).data,
-            'access': str(refresh.access_token),
-            'refresh': str(refresh),
-        }, status=status.HTTP_201_CREATED)
+        return verification_response(user, status=status.HTTP_201_CREATED)
 
 
 class LoginView(TokenObtainPairView):
     serializer_class = PhoneTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        from .auth_extra import verification_response
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        unverified = getattr(ser, 'unverified_user', None)
+        if unverified:
+            # Correct password but the email was never confirmed → send a code.
+            return verification_response(unverified, status=202)
+        return Response(ser.validated_data)
 
 
 @api_view(['POST'])
@@ -58,6 +71,8 @@ def google_auth(request):
         return Response({'detail': "Google bilan bog'lanib bo'lmadi"}, status=502)
 
     client_id = getattr(dj_settings, 'GOOGLE_CLIENT_ID', '')
+    if not client_id:
+        return Response({'detail': 'Google orqali kirish sozlanmagan'}, status=503)
     if r.status_code != 200 or not info.get('email'):
         return Response({'detail': "Google token noto'g'ri"}, status=400)
     if client_id and info.get('aud') != client_id:
@@ -76,6 +91,12 @@ def google_auth(request):
         created = True
     if not user.is_active:
         return Response({'detail': 'Akkaunt bloklangan'}, status=403)
+    if not user.is_verified:
+        # Google has verified this address for us.
+        user.is_verified = True
+        user.save(update_fields=['is_verified'])
+    from django.contrib.auth.models import update_last_login
+    update_last_login(None, user)
 
     refresh = RefreshToken.for_user(user)
     return Response({
@@ -117,6 +138,7 @@ def password_reset(request):
     from django.conf import settings as dj_settings
     from django.utils import timezone
     from .models import PasswordResetCode
+    from .auth_extra import _email_html
 
     ser = PasswordResetSerializer(data=request.data)
     ser.is_valid(raise_exception=True)
@@ -140,6 +162,9 @@ def password_reset(request):
         f'Parolni tiklash kodi: {code}\nKod 10 daqiqa amal qiladi.\n\nAgar bu siz bo\'lmasangiz, xatni e\'tiborsiz qoldiring.',
         getattr(dj_settings, 'DEFAULT_FROM_EMAIL', 'noreply@ionedu.uz'),
         [email],
+        html_message=_email_html(
+            'Parolni tiklash', code,
+            "Parolingizni tiklash so'rovi keldi. Yangi parol o'rnatish uchun quyidagi kodni kiriting.", minutes=10),
         fail_silently=True,
     )
     return Response(generic)
@@ -184,7 +209,8 @@ def password_reset_confirm(request):
 def change_password(request):
     old = request.data.get('old_password') or ''
     new = request.data.get('new_password') or ''
-    if not request.user.check_password(old):
+    # Google-only accounts have no password yet — they may set one directly.
+    if request.user.has_usable_password() and not request.user.check_password(old):
         return Response({'detail': "Joriy parol noto'g'ri"}, status=400)
     if len(new) < 6:
         return Response({'detail': 'Yangi parol kamida 6 ta belgi'}, status=400)
@@ -250,7 +276,24 @@ class AdminUserViewSet(viewsets.ModelViewSet):
                 Q(email__icontains=q) | Q(full_name__icontains=q) | Q(phone__icontains=q)
                 | Q(school__icontains=q) | Q(district__icontains=q) | Q(region__icontains=q)
             )
+        v = params.get('is_verified')
+        if v not in (None, ''):
+            qs = qs.filter(is_verified=v in ('1', 'true', 'True'))
         return qs
+
+    def perform_create(self, serializer):
+        # Accounts created by an admin are trusted — no email round-trip.
+        serializer.save(is_verified=True)
+
+    def destroy(self, request, *args, **kwargs):
+        """Permanently delete the user with everything they own."""
+        from .auth_extra import admin_delete_guard, purge_user
+        user = self.get_object()
+        err = admin_delete_guard(user, request.user)
+        if err:
+            return Response({'detail': err}, status=400)
+        summary = purge_user(user)
+        return Response({'detail': "Foydalanuvchi butunlay o'chirildi", 'summary': summary})
 
 
 @api_view(['GET'])

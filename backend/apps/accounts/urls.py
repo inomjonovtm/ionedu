@@ -6,7 +6,13 @@ from .views import (
     google_auth,
 )
 
+from .auth_extra import verify_email, resend_verification, auth_config, delete_me
+
 urlpatterns = [
+    path('config/', auth_config, name='auth-config'),
+    path('verify-email/', verify_email, name='verify-email'),
+    path('verify-email/resend/', resend_verification, name='verify-email-resend'),
+    path('me/delete/', delete_me, name='me-delete'),
     path('register/', RegisterView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
     path('google/', google_auth, name='google-auth'),

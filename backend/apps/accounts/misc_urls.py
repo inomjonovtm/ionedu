@@ -19,8 +19,11 @@ admin_router = DefaultRouter()
 admin_router.register(r'users', AdminUserViewSet, basename='admin-user')
 admin_router.register(r'team', AdminTeamViewSet, basename='admin-team')
 
+from .auth_extra import admin_bulk_delete_users
+
 urlpatterns = [
     path('', include(teachers_router.urls)),
+    path('admin/users/bulk-delete/', admin_bulk_delete_users),
     path('admin/', include(admin_router.urls)),
     path('admin/users/<int:user_id>/role/', set_user_role),
     path('admin/users/<int:pk>/detail/', admin_user_detail),

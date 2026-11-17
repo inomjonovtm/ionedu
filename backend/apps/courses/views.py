@@ -107,9 +107,17 @@ class CourseViewSet(viewsets.ModelViewSet):
             return Response(ReviewSerializer(course.reviews.all(), many=True).data)
         if not request.user.is_authenticated:
             return Response({'detail': 'Auth required'}, status=401)
+        try:
+            rating = int(request.data.get('rating', 5))
+        except (TypeError, ValueError):
+            rating = 0
+        if not 1 <= rating <= 5:
+            return Response({'detail': "Baho 1 dan 5 gacha bo'lishi kerak"}, status=400)
+        if not Enrollment.objects.filter(student=request.user, course=course).exists():
+            return Response({'detail': 'Sharh qoldirish uchun avval kursga yoziling'}, status=403)
         review, _ = Review.objects.update_or_create(
             student=request.user, course=course,
-            defaults={'rating': int(request.data.get('rating', 5)), 'comment': request.data.get('comment', '')},
+            defaults={'rating': rating, 'comment': str(request.data.get('comment', ''))[:2000]},
         )
         return Response(ReviewSerializer(review).data, status=201)
 
@@ -117,6 +125,49 @@ class CourseViewSet(viewsets.ModelViewSet):
     def enrolled(self, request):
         enrollments = Enrollment.objects.filter(student=request.user).select_related('course__teacher')
         return Response(EnrollmentSerializer(enrollments, many=True, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def structure(self, request, slug=None):
+        """Save the whole curriculum arrangement in one call.
+
+        Body: {"sections": [{"id": 1, "items": [{"kind": "lesson"|"test", "id": 5}, ...]}, ...]}
+        Sets section order, moves lessons/tests between sections and writes the
+        shared lesson/test position inside every section.
+        """
+        from django.db import transaction
+        from apps.tests.models import Test
+
+        course = self.get_object()
+        payload = request.data.get('sections')
+        if not isinstance(payload, list):
+            return Response({'detail': 'sections kerak'}, status=400)
+
+        sections = {s.id: s for s in course.sections.all()}
+        lessons = {l.id: l for l in Lesson.objects.filter(section__course=course)}
+        tests = {t.id: t for t in Test.objects.filter(section__course=course)}
+
+        with transaction.atomic():
+            for s_pos, entry in enumerate(payload):
+                section = sections.get(entry.get('id')) if isinstance(entry, dict) else None
+                if not section:
+                    continue
+                if section.order != s_pos:
+                    section.order = s_pos
+                    section.save(update_fields=['order'])
+                for pos, item in enumerate(entry.get('items') or []):
+                    if not isinstance(item, dict):
+                        continue
+                    pool = lessons if item.get('kind') == 'lesson' else tests
+                    obj = pool.get(item.get('id'))
+                    if not obj:
+                        continue
+                    if obj.section_id != section.id or obj.order != pos:
+                        obj.section_id = section.id
+                        obj.order = pos
+                        obj.save(update_fields=['section', 'order'])
+
+        course = self.get_queryset().get(pk=course.pk)
+        return Response(SectionSerializer(course.sections.all(), many=True, context={'request': request}).data)
 
     @action(detail=True, methods=['get'])
     def students(self, request, slug=None):
@@ -183,10 +234,13 @@ class SectionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         course = get_object_or_404(Course, slug=self.kwargs['course_slug'])
-        if course.teacher != self.request.user and self.request.user.role != 'admin':
+        user = self.request.user
+        if course.teacher != user and user.role != 'admin' and not user.is_superuser:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied()
-        serializer.save(course=course)
+        from django.db.models import Max
+        last = course.sections.aggregate(m=Max('order'))['m']
+        serializer.save(course=course, order=0 if last is None else last + 1)
 
 
 class LessonViewSet(viewsets.ModelViewSet):
@@ -199,10 +253,12 @@ class LessonViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         section = get_object_or_404(Section, pk=self.kwargs['section_id'])
-        if section.course.teacher != self.request.user and self.request.user.role != 'admin':
+        user = self.request.user
+        if section.course.teacher != user and user.role != 'admin' and not user.is_superuser:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied()
-        serializer.save(section=section)
+        from apps.tests.views import _next_position
+        serializer.save(section=section, order=_next_position(section))
 
 
 @api_view(['POST'])
@@ -244,6 +300,8 @@ def pending_courses(request):
 @permission_classes([IsAdmin])
 def approve_course(request, slug):
     course = get_object_or_404(Course, slug=slug)
+    if not Lesson.objects.filter(section__course=course).exists():
+        return Response({'detail': "Kursda birorta ham dars yo'q — nashr etib bo'lmaydi"}, status=400)
     course.status = 'published'
     course.rejection_note = ''
     course.save()
@@ -284,6 +342,25 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
         if user.role == 'admin' or user.is_superuser:
             return Lesson.objects.all()
         return Lesson.objects.filter(section__course__teacher=user)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated, IsTeacher])
+def duplicate_lesson(request, pk):
+    """Copy a lesson (same video source and description) to the end of its section."""
+    lesson = get_object_or_404(Lesson, pk=pk)
+    user = request.user
+    if lesson.section.course.teacher != user and user.role != 'admin' and not user.is_superuser:
+        return Response({'detail': 'Forbidden'}, status=403)
+    from apps.tests.views import _next_position
+    copy = Lesson.objects.create(
+        section=lesson.section, title=f'{lesson.title} (nusxa)'[:200],
+        order=_next_position(lesson.section), video_type=lesson.video_type,
+        youtube_url=lesson.youtube_url, video_file=lesson.video_file.name if lesson.video_file else None,
+        description=lesson.description, duration_minutes=lesson.duration_minutes,
+        is_free_preview=lesson.is_free_preview,
+    )
+    return Response(LessonSerializer(copy, context={'request': request}).data, status=201)
 
 
 # --- Lesson comments + resources ---

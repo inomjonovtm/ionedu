@@ -1,1184 +1,1040 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import api, { absUrl } from '../../api/client'
+import { useAuth } from '../../store/auth'
 import DashLayout from '../../components/DashLayout'
 import Icon from '../../components/Icon'
-import FileInput from '../../components/FileInput'
-import LessonMaterialsManager from '../../components/LessonMaterialsManager'
+import Confirm from '../../components/Confirm'
 import RichTextEditor from '../../components/RichTextEditor'
-import { useAuth } from '../../store/auth'
+import LessonMaterialsManager from '../../components/LessonMaterialsManager'
+import TestEditor from '../../components/builder/TestEditor'
+import { CourseStatus, EmptyState } from '../../components/Dash'
 
-const STEPS = ["Asosiy ma'lumot", "Bo'limlar, darslar va testlar", "Ko'rib chiqish"]
-const EMOJIS = ['🌍', '🏔️', '🗺️', '🌋', '🌐', '🌾', '💨', '🌊', '🐪', '🌡️']
+/* ════════════════════════════════════════════════════════════════
+   Course Studio
+   Left  — the course outline: sections with lessons AND tests in one
+           freely ordered list (drag & drop, or insert at any position).
+   Right — an editor for whatever is selected: course info, a lesson,
+           a test (full TestEditor) or the publish checklist.
+   ════════════════════════════════════════════════════════════════ */
+
+const EMOJIS = ['🌍', '🗺️', '🏔️', '🌋', '🌊', '🏜️', '🌾', '🌦️', '🧭', '🛰️', '🏙️', '🐪', '🌡️', '💎', '🚀', '📊']
 const COLORS = ['blue', 'green', 'amber', 'rose', 'teal', 'violet', 'slate']
+const LEVELS = [['beginner', "Boshlang'ich"], ['intermediate', "O'rta"], ['advanced', 'Yuqori']]
 
-const gfsStyles = `
-  /* ── Studio layout: sticky sidebar + content ── */
-  .cb-layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 22px; align-items: start; margin-top: 18px; }
-  .cb-side { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 14px; }
-  .cb-preview { background: var(--white); border: 1px solid var(--border); border-radius: var(--r-card); overflow: hidden; }
-  .cb-preview .pthumb { aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; font-size: 46px; }
-  .cb-preview .pthumb img { width: 100%; height: 100%; object-fit: cover; }
-  .cb-preview .pbody { padding: 14px 16px 16px; }
-  .cb-preview .ptitle { font-weight: 650; font-size: 15px; letter-spacing: -0.015em; line-height: 1.35; word-break: break-word; }
-  .cb-steps { background: var(--white); border: 1px solid var(--border); border-radius: var(--r-card); padding: 8px; }
-  .cb-step {
-    display: flex; gap: 12px; width: 100%; padding: 12px; align-items: flex-start;
-    border: none; background: transparent; border-radius: 12px; cursor: pointer; text-align: left;
-    transition: background .12s; position: relative;
-  }
-  .cb-step:hover { background: var(--bg-soft); }
-  .cb-step.active { background: var(--green-50); }
-  .cb-step.locked { opacity: .5; cursor: not-allowed; }
-  .cb-step .num {
-    width: 30px; height: 30px; border-radius: 999px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-mono); font-weight: 560; font-size: 12px;
-    border: 1.5px solid var(--border); background: var(--white); color: var(--text-3);
-    transition: all .15s;
-  }
-  .cb-step.active .num { background: var(--green-600); border-color: var(--green-600); color: white; }
-  .cb-step.done .num { background: var(--green-50); border-color: var(--green-200); color: var(--green-700); }
-  .cb-step .t { font-size: 13.5px; font-weight: 600; color: var(--text-2); }
-  .cb-step.active .t { color: var(--green-800); }
-  .cb-step .d { font-size: 11.5px; color: var(--text-4); margin-top: 2px; line-height: 1.4; }
-  .cb-side-actions { display: flex; flex-direction: column; gap: 8px; }
-  .cb-main { min-width: 0; }
-  @media (max-width: 1100px) {
-    .cb-layout { grid-template-columns: 1fr; }
-    .cb-side { position: static; }
-    .cb-preview { display: none; }
-    .cb-steps { display: flex; gap: 4px; }
-    .cb-step { flex: 1; flex-direction: column; gap: 8px; align-items: center; text-align: center; }
-    .cb-step .d { display: none; }
-    .cb-side-actions { flex-direction: row; }
-  }
+const css = `
+  .cs-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .cs-top h1 { font-size: 28px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 520px; }
+  .cs-top .sp { flex: 1; }
+  .cs-back { width: 42px; height: 42px; border-radius: 13px; border: 1.5px solid var(--border); background: var(--white); display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); flex-shrink: 0; }
+  .cs-back:hover { border-color: var(--line); color: var(--text); }
+  .cs-saved { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); display: inline-flex; align-items: center; gap: 6px; }
+  .cs-saved.busy { color: var(--amber-600); }
 
-  /* Google-Forms-style cards */
-  .gf-card {
-    background: var(--white); border: 1px solid var(--border); border-radius: var(--r-card);
-    margin-bottom: 14px;
-    transition: box-shadow .15s ease, border-color .15s ease;
-    position: relative;
-    overflow: hidden;
-  }
-  .gf-card.focused {
-    box-shadow: var(--shadow-hover);
-    border-color: var(--green-300);
-  }
-  .gf-card.focused::before {
-    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-    background: var(--green-600);
-  }
-  .gf-section-head {
-    display: flex; align-items: center; gap: 12px;
-    padding: 16px 20px 16px 24px;
-    cursor: pointer;
-  }
-  .gf-section-num {
-    width: 30px; height: 30px; border-radius: 9px;
-    background: var(--green-50); color: var(--green-700);
-    box-shadow: inset 0 0 0 1px var(--green-100);
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-mono); font-weight: 560; font-size: 12px;
-    flex-shrink: 0;
-  }
-  .gf-section-title {
-    flex: 1; font-weight: 600; font-size: 16px; color: var(--text);
-    border: none; outline: none; background: transparent;
-    padding: 4px 8px; margin: -4px -8px;
-    border-radius: 6px;
-    transition: background .12s;
-  }
-  .gf-section-title:focus { background: var(--bg-soft); }
-  .gf-section-meta {
-    font-size: 12px; color: var(--text-3); padding: 2px 8px;
-    background: var(--bg-soft); border-radius: 999px;
-  }
-  .gf-section-body {
-    padding: 4px 12px 12px;
-    border-top: 1px solid var(--border-2);
-    background: linear-gradient(to bottom, var(--bg-soft) 0%, transparent 60px);
-  }
+  .cs-grid { display: grid; grid-template-columns: 372px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .cs-out { position: sticky; top: 16px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--white); border: 1.5px solid var(--border); border-radius: 22px; overflow: hidden; }
+  .cs-out-head { padding: 12px; border-bottom: 1.5px dashed var(--border); display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  .cs-nav { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border-radius: 13px; font-size: 14px; font-weight: 700; color: var(--text-2); text-align: left; }
+  .cs-nav:hover { background: var(--bg-soft); color: var(--text); }
+  .cs-nav.on { background: var(--sun); color: #14213D; }
+  .cs-nav .ni { width: 30px; height: 30px; border-radius: 10px; background: var(--bg-soft); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .cs-nav.on .ni { background: #fff; color: #14213D; }
+  .cs-nav .nb { margin-left: auto; font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+  .cs-out-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 10px 12px; }
+  .cs-out-foot { padding: 10px 12px; border-top: 1.5px dashed var(--border); flex-shrink: 0; }
 
-  /* Lesson row — collapsed */
-  .gf-lesson { margin: 8px 4px; }
-  .gf-lesson-row {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 14px; border-radius: 10px;
-    background: var(--white); border: 1px solid var(--border);
-    transition: all .12s;
-  }
-  .gf-lesson-row:hover { border-color: var(--green-300); transform: translateY(-1px); }
-  .gf-lesson-icon {
-    width: 30px; height: 30px; border-radius: 8px;
-    background: var(--green-50); color: var(--green-600);
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  }
-  .gf-lesson-icon.test { background: var(--blue-50); color: var(--blue-600); }
-  .gf-lesson-title { flex: 1; font-size: 14px; font-weight: 500; }
-  .gf-lesson-meta { font-size: 12px; color: var(--text-3); }
+  .cs-sec { border: 1.5px solid var(--border); border-radius: 16px; margin-bottom: 8px; background: var(--paper); transition: box-shadow .12s ease, opacity .12s ease; }
+  .cs-sec.dragging { opacity: .4; }
+  .cs-sec.over-top { box-shadow: 0 -4px 0 var(--sea); }
+  .cs-sec.over-bot { box-shadow: 0 4px 0 var(--sea); }
+  .cs-sec-head { display: flex; align-items: center; gap: 4px; padding: 8px 6px 8px 4px; }
+  .cs-grip { cursor: grab; color: var(--text-4); display: inline-flex; padding: 4px 2px; flex-shrink: 0; touch-action: none; }
+  .cs-grip:hover { color: var(--text-2); }
+  .cs-sec-n { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--text-3); flex-shrink: 0; width: 22px; text-align: center; }
+  .cs-sec-title { flex: 1; min-width: 0; height: 32px; padding: 0 8px; border-radius: 9px; border: 1.5px solid transparent; background: transparent; font-weight: 750; font-size: 14px; font-family: var(--font-display); letter-spacing: -.01em; color: var(--text); outline: none; text-overflow: ellipsis; }
+  .cs-sec-title:hover { border-color: var(--border); }
+  .cs-sec-title:focus { border-color: var(--line); background: var(--white); }
+  .cs-mini { width: 28px; height: 28px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-3); flex-shrink: 0; }
+  .cs-mini:hover { background: var(--bg-soft); color: var(--text); }
+  .cs-mini.danger:hover { background: var(--red-50); color: var(--red-600); }
+  .cs-mini:disabled { opacity: .3; pointer-events: none; }
+  .cs-items { padding: 0 6px 6px; min-height: 12px; }
+  .cs-item { display: flex; align-items: center; gap: 6px; padding: 7px 6px 7px 2px; border-radius: 12px; background: var(--white); border: 1.5px solid var(--border-2); cursor: pointer; transition: border-color .12s ease, box-shadow .12s ease, opacity .12s ease; position: relative; }
+  .cs-item:hover { border-color: var(--line); }
+  .cs-item.on { border: 2px solid var(--line); box-shadow: var(--hard-sm); padding: 6.5px 5.5px 6.5px 1.5px; }
+  .cs-item.dragging { opacity: .35; }
+  .cs-ico { width: 30px; height: 30px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #14213D; }
+  .cs-ico.lesson { background: #C9DCFF; } .cs-ico.test { background: #DAD0FF; }
+  .cs-item .tt { flex: 1; min-width: 0; }
+  .cs-item .tn { font-weight: 700; font-size: 13.5px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .cs-item .tm { font-size: 11.5px; color: var(--text-3); margin-top: 1px; display: flex; align-items: center; gap: 5px; }
+  .cs-item .warn { color: var(--amber-600); font-weight: 700; }
+  .cs-item .acts { display: none; gap: 0; }
+  .cs-item:hover .acts, .cs-item.on .acts { display: inline-flex; }
 
-  /* Lesson row — expanded inline form */
-  .gf-lesson-form {
-    background: var(--white); border: 2px solid var(--green-600); border-radius: 12px;
-    padding: 22px;
-    margin: 8px 4px;
-    animation: gfIn .2s ease-out;
-    box-shadow: 0 10px 24px -10px rgba(14,131,69,0.2);
-  }
-  @keyframes gfIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-  .gf-form-head {
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 16px;
-  }
-  .gf-form-head .badge-mini {
-    padding: 3px 11px; border-radius: 999px;
-    background: var(--green-50); color: var(--green-700);
-    box-shadow: inset 0 0 0 1px var(--green-100);
-    font-family: var(--font-mono);
-    font-size: 10px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase;
-  }
-  .gf-form-head .badge-mini.test { background: var(--blue-50); color: var(--blue-600); }
-  .gf-input-lg {
-    width: 100%; padding: 12px 14px; font-size: 16px; font-weight: 500;
-    border: none; outline: none;
-    border-bottom: 1.5px solid var(--border);
-    background: transparent;
-    transition: border-color .12s;
-  }
-  .gf-input-lg:focus { border-bottom-color: var(--green-600); }
+  /* gap between items = drop zone + "insert here" */
+  .cs-gap { position: relative; height: 8px; }
+  .cs-gap.drop::before { content: ''; position: absolute; left: 4px; right: 4px; top: 2px; height: 4px; border-radius: 99px; background: var(--sea); }
+  .cs-gap .ins { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; gap: 4px; z-index: 3; }
+  .cs-gap:hover .ins { display: inline-flex; }
+  .cs-gap:hover::after { content: ''; position: absolute; left: 8px; right: 8px; top: 3.5px; border-top: 1.5px dashed var(--text-4); }
+  .cs-ins { height: 22px; padding: 0 8px; border-radius: 99px; font-size: 11px; font-weight: 750; border: 1.5px solid var(--line); background: var(--white); color: var(--text); display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+  .cs-ins:hover { background: var(--sun); color: #14213D; }
+  .cs-dragging .cs-gap { height: 12px; }
+  .cs-dragging .cs-gap .ins, .cs-dragging .cs-gap::after { display: none !important; }
+  .cs-add { display: flex; gap: 6px; padding: 2px 0 0; }
+  .cs-add button { flex: 1; height: 32px; border-radius: 10px; border: 1.5px dashed var(--border); font-size: 12.5px; font-weight: 700; color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; gap: 5px; background: transparent; }
+  .cs-add button:hover { border-color: var(--line); border-style: solid; color: var(--text); background: var(--white); }
+  .cs-empty { text-align: center; font-size: 12.5px; color: var(--text-3); padding: 10px 6px 8px; }
 
-  /* Add lesson/test toolbar at bottom of section */
-  .gf-add-row {
-    display: flex; gap: 8px; padding: 10px 4px;
-    border-top: 1px dashed var(--border);
-    margin-top: 4px;
-  }
-  .gf-add-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 14px; border-radius: 8px;
-    background: var(--white); border: 1px solid var(--border);
-    color: var(--text-2); font-size: 13px; font-weight: 500; cursor: pointer;
-    transition: all .12s;
-  }
-  .gf-add-btn:hover { border-color: var(--green-600); color: var(--green-700); background: var(--green-50); }
+  /* Right panel */
+  .cs-panel { background: var(--white); border: 1.5px solid var(--border); border-radius: 22px; padding: 24px; min-width: 0; }
+  .cs-ph { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1.5px dashed var(--border); flex-wrap: wrap; }
+  .cs-ph .pi { width: 46px; height: 46px; border-radius: 15px; border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transform: rotate(-4deg); color: #14213D; }
+  .cs-ph h2 { font-size: 23px; }
+  .cs-ph p { font-size: 13.5px; color: var(--text-3); margin-top: 3px; }
+  .cs-ph .sp { flex: 1; }
+  .cs-g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .cs-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 20px; padding-top: 18px; border-top: 1.5px dashed var(--border); }
+  .cs-foot .sp { flex: 1; }
+  .cs-dirty { font-size: 13px; font-weight: 700; color: var(--amber-600); }
 
-  /* "Add section" floating button */
-  .gf-add-section {
-    display: flex; align-items: center; gap: 10px; justify-content: center;
-    width: 100%; padding: 16px;
-    background: var(--white); border: 1.5px dashed var(--border); border-radius: 14px;
-    color: var(--text-3); font-size: 14px; font-weight: 500; cursor: pointer;
-    transition: all .15s;
-  }
-  .gf-add-section:hover {
-    border-color: var(--green-600); color: var(--green-700); background: var(--green-50);
-    transform: translateY(-1px);
-  }
+  .cs-cover { display: grid; grid-template-columns: 240px 1fr; gap: 18px; align-items: start; }
+  .cs-cover-prev { aspect-ratio: 16/10; border-radius: 18px; overflow: hidden; border: 1.5px solid var(--line); font-size: 64px; }
+  .cs-cover-prev img { width: 100%; height: 100%; object-fit: cover; }
+  .cs-emo { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cs-emo button { width: 38px; height: 38px; border-radius: 11px; font-size: 19px; border: 1.5px solid var(--border); background: var(--white); }
+  .cs-emo button.on { border: 2px solid var(--line); background: var(--sun-soft); }
+  .cs-col { display: flex; gap: 6px; flex-wrap: wrap; }
+  .cs-col button { width: 34px; height: 34px; border-radius: 11px; border: 2px solid transparent; }
+  .cs-col button.on { border-color: var(--line); box-shadow: var(--hard-sm); }
 
-  /* Tab pills for lesson form */
-  .gf-tabs {
-    display: inline-flex; gap: 2px;
-    background: var(--bg-soft); border-radius: 10px; padding: 3px;
-    margin-bottom: 14px;
-  }
-  .gf-tabs button {
-    padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
-    color: var(--text-3); background: transparent; border: none; cursor: pointer;
-  }
-  .gf-tabs button.active { background: var(--white); color: var(--green-700); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .cs-vtabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--bg-soft); border: 1.5px solid var(--border); border-radius: 13px; margin-bottom: 12px; }
+  .cs-vtabs button { padding: 7px 14px; border-radius: 9px; font-size: 13px; font-weight: 700; color: var(--text-3); display: inline-flex; align-items: center; gap: 6px; }
+  .cs-vtabs button.on { background: var(--ink); color: #fff; }
+  html[data-theme="dark"] .cs-vtabs button.on { background: var(--sun); color: #14213D; }
+  .cs-video { aspect-ratio: 16/9; border-radius: 16px; overflow: hidden; background: var(--ink); border: 1.5px solid var(--line); margin-top: 10px; max-width: 560px; }
+  .cs-video iframe, .cs-video video { width: 100%; height: 100%; border: 0; display: block; }
+  .cs-drop { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 18px; border: 2px dashed var(--border); border-radius: 16px; cursor: pointer; text-align: center; transition: all .14s ease; background: var(--paper); }
+  .cs-drop:hover, .cs-drop.over { border-color: var(--line); background: var(--sun-soft); }
+  .cs-upbar { height: 12px; border-radius: 99px; border: 1.5px solid var(--line); background: var(--white); overflow: hidden; margin-top: 10px; }
+  .cs-upbar i { display: block; height: 100%; background: var(--sun); transition: width .2s ease; }
+  .cs-sw { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 14px; }
+  .cs-sw .t { font-weight: 700; font-size: 14px; } .cs-sw .d { font-size: 12.5px; color: var(--text-3); margin-top: 2px; }
 
-  /* Question card */
-  .gf-q-card {
-    background: var(--white); border: 1px solid var(--border); border-radius: 12px;
-    padding: 18px; margin-bottom: 12px;
-    transition: all .12s;
+  .cs-check { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1.5px dashed var(--border-2); }
+  .cs-check:last-child { border-bottom: none; }
+  .cs-check .ci { width: 28px; height: 28px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .cs-check.ok .ci { background: var(--green-100); color: var(--green-800); }
+  .cs-check.no .ci { background: var(--coral-soft); color: var(--red-600); }
+  .cs-check.opt .ci { background: var(--sun-soft); color: var(--amber-600); }
+  .cs-check .ct { font-weight: 700; font-size: 14px; } .cs-check .cd { font-size: 12.5px; color: var(--text-3); margin-top: 2px; }
+  .cs-check button { margin-left: auto; flex-shrink: 0; }
+  .cs-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .cs-stat { border: 1.5px solid var(--border); border-radius: 16px; padding: 14px; }
+  .cs-stat .v { font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -.04em; line-height: 1; }
+  .cs-stat .l { font-size: 12px; color: var(--text-3); font-weight: 650; margin-top: 6px; }
+  .cs-note { border-radius: 16px; padding: 14px 16px; font-size: 13.5px; line-height: 1.55; margin-bottom: 18px; display: flex; gap: 12px; }
+  .cs-note.red { background: var(--red-50); color: var(--text-2); border: 1.5px dashed var(--red-600); }
+  .cs-note.amber { background: var(--amber-50); color: var(--text-2); }
+  .cs-note.green { background: var(--green-50); color: var(--text-2); }
+
+  .cs-mobile-toggle { display: none; }
+  @media (max-width: 1180px) {
+    .cs-grid { grid-template-columns: 1fr; }
+    .cs-out { position: static; max-height: none; }
+    .cs-out.collapsed .cs-out-body, .cs-out.collapsed .cs-out-foot { display: none; }
+    .cs-mobile-toggle { display: inline-flex; }
+    .cs-item .acts { display: inline-flex; }
   }
-  .gf-q-card:hover { border-color: var(--green-300); box-shadow: 0 4px 12px -6px rgba(0,0,0,0.06); }
-  .gf-q-card.focused { border-color: var(--green-600); box-shadow: 0 6px 18px -8px rgba(14,131,69,0.18); }
-  .gf-q-opts { display: flex; flex-direction: column; gap: 8px; }
-  .gf-q-opt {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 14px;
-    border: 1px solid var(--border); border-radius: 10px;
-    background: var(--white);
-  }
-  .gf-q-opt.correct { border-color: var(--green-600); background: var(--green-50); }
-  .gf-q-opt-marker {
-    width: 26px; height: 26px; border-radius: 999px;
-    border: 1.5px solid var(--border);
-    color: var(--text-3);
-    display: inline-flex; align-items: center; justify-content: center;
-    font-family: var(--font-mono); font-weight: 560; font-size: 12px;
-    background: var(--white); cursor: pointer; flex-shrink: 0;
-    transition: all .12s;
-  }
-  .gf-q-opt.correct .gf-q-opt-marker {
-    background: var(--green-600); border-color: var(--green-600); color: white;
-  }
-  .gf-q-opt input {
-    flex: 1; border: none; outline: none; font-size: 14px; background: transparent;
+  @media (max-width: 640px) {
+    .cs-panel { padding: 16px; } .cs-g2, .cs-cover { grid-template-columns: 1fr; } .cs-stats { grid-template-columns: 1fr 1fr; }
+    .cs-top h1 { font-size: 22px; max-width: 100%; }
   }
 `
 
-export default function CourseBuilder() {
-  const { slug } = useParams()
+const errMsg = (e, fallback) => {
+  const d = e?.response?.data
+  if (!d) return e?.response ? fallback : "Server bilan aloqa yo'q"
+  if (typeof d === 'string') return fallback
+  const first = d.detail || d.title || d.status || Object.values(d)[0]
+  return String(Array.isArray(first) ? first[0] : first || fallback)
+}
+
+function ytId(url) {
+  const m = (url || '').match(/(?:youtu\.be\/|v=|embed\/|shorts\/|live\/)([\w-]{11})/)
+  return m ? m[1] : null
+}
+
+/* ─────────────────────────── Course info ─────────────────────────── */
+
+function CourseInfoPanel({ course, onSaved, onDirty }) {
   const navigate = useNavigate()
-  const qc = useQueryClient()
-  const { user } = useAuth()
-  const isEdit = !!slug
-
-  const [step, setStep] = useState(1)
-  const [form, setForm] = useState({
-    title: '', description: '',
-    category_id: '', level: 'beginner',
-    is_free: true, price: 0,
-    thumb_emoji: '🌍', thumb_color: 'blue',
-  })
-  const [thumbFile, setThumbFile] = useState(null)
-  const [thumbPreview, setThumbPreview] = useState(null)
-  const [courseSlug, setCourseSlug] = useState(slug || null)
-
+  const loc = useLocation()
   const { data: cats = [] } = useQuery({
     queryKey: ['categories'],
     queryFn: () => api.get('/categories/').then(r => r.data.results || r.data),
   })
-
-  const { data: existing } = useQuery({
-    queryKey: ['edit-course', slug],
-    queryFn: () => api.get(`/courses/${slug}/`).then(r => r.data),
-    enabled: isEdit,
+  const init = () => ({
+    title: course?.title || '', description: course?.description || '',
+    category_id: course?.category?.id || '', level: course?.level || 'beginner',
+    thumb_emoji: course?.thumb_emoji || '🌍', thumb_color: course?.thumb_color || 'blue',
   })
+  const [f, setF] = useState(init)
+  const [thumb, setThumb] = useState(null)
+  const [preview, setPreview] = useState(course?.thumbnail ? absUrl(course.thumbnail) : '')
+  const [busy, setBusy] = useState(false)
+  const set = (k, v) => setF(s => ({ ...s, [k]: v }))
+  const dirty = !!thumb || JSON.stringify(f) !== JSON.stringify(init())
+  useEffect(() => { onDirty?.(dirty) }, [dirty, onDirty])
 
-  useEffect(() => {
-    if (existing) {
-      setForm({
-        title: existing.title,
-        description: existing.description || '',
-        category_id: existing.category?.id || '',
-        level: existing.level,
-        is_free: existing.is_free,
-        price: existing.price || 0,
-        thumb_emoji: existing.thumb_emoji,
-        thumb_color: existing.thumb_color,
-      })
-      if (existing.thumbnail) setThumbPreview(absUrl(existing.thumbnail))
-      setCourseSlug(existing.slug)
-    }
-  }, [existing])
-
-  const onPickThumb = (file) => {
+  function pick(e) {
+    const file = e.target.files?.[0]
     if (!file) return
-    setThumbFile(file)
-    const reader = new FileReader()
-    reader.onload = (e) => setThumbPreview(e.target.result)
-    reader.readAsDataURL(file)
+    if (!file.type.startsWith('image/')) return toast.error('Faqat rasm fayli tanlang')
+    if (file.size > 5 * 1024 * 1024) return toast.error('Rasm hajmi 5 MB dan oshmasin')
+    setThumb(file); setPreview(URL.createObjectURL(file))
   }
 
-  const save = useMutation({
-    mutationFn: async () => {
+  async function save(e) {
+    e?.preventDefault()
+    if (f.title.trim().length < 3) return toast.error('Kurs nomi kamida 3 ta belgidan iborat bo\'lsin')
+    setBusy(true)
+    try {
       const fd = new FormData()
-      Object.entries(form).forEach(([k, v]) => {
-        if (v !== '' && v !== null && v !== undefined) fd.append(k, v)
-      })
-      if (thumbFile) fd.append('thumbnail', thumbFile)
+      fd.append('title', f.title.trim())
+      fd.append('description', f.description)
+      fd.append('level', f.level)
+      fd.append('thumb_emoji', f.thumb_emoji)
+      fd.append('thumb_color', f.thumb_color)
+      if (f.category_id) fd.append('category_id', f.category_id)
+      if (thumb) fd.append('thumbnail', thumb)
       const headers = { 'Content-Type': 'multipart/form-data' }
-      if (courseSlug) {
-        const { data } = await api.patch(`/courses/${courseSlug}/`, fd, { headers })
-        return data
+      if (course) {
+        await api.patch(`/courses/${course.slug}/`, fd, { headers })
+        setThumb(null)
+        toast.success('Saqlandi')
+        onSaved()
+      } else {
+        fd.append('status', 'draft')
+        const { data } = await api.post('/courses/', fd, { headers })
+        toast.success('Kurs yaratildi — endi darslar qo\'shing')
+        navigate(loc.pathname.replace(/new$/, `${data.slug}/edit`), { replace: true })
       }
-      fd.append('status', 'draft')
-      const { data } = await api.post('/courses/', fd, { headers })
-      return data
-    },
-    onSuccess: (data) => {
-      setCourseSlug(data.slug)
-      setThumbFile(null)
-      qc.invalidateQueries(['my-teaching'])
-      qc.invalidateQueries(['edit-course'])
-      toast.success('Saqlandi')
-    },
-    onError: (e) => {
-      const d = e.response?.data
-      const msg = d?.title?.[0] || d?.detail || (typeof d === 'string' ? d : 'Saqlashda xatolik')
-      toast.error(String(msg))
-    },
-  })
-
-  const submitForReview = useMutation({
-    mutationFn: () => api.patch(`/courses/${courseSlug}/`, { status: 'pending' }),
-    onSuccess: () => {
-      toast.success('Kurs moderatsiyaga yuborildi')
-      navigate(user?.role === 'admin' ? '/admin-panel/courses' : '/teacher/courses')
-    },
-    onError: () => toast.error('Yuborishda xatolik'),
-  })
-
-  const publishDirect = useMutation({
-    mutationFn: () => api.patch(`/courses/${courseSlug}/`, { status: 'published' }),
-    onSuccess: () => { toast.success('Kurs nashr etildi'); navigate('/admin-panel/courses') },
-    onError: () => toast.error('Nashr etishda xatolik'),
-  })
-
-  const base = user?.role === 'admin' ? '/admin-panel' : '/teacher'
-  const STATUS_BADGE = {
-    published: ['green', 'Nashr etilgan'],
-    pending: ['amber', 'Moderatsiyada'],
-    rejected: ['red', 'Rad etilgan'],
-    draft: ['gray', 'Qoralama'],
+    } catch (err) { toast.error(errMsg(err, 'Saqlashda xatolik')) }
+    finally { setBusy(false) }
   }
-  const [statusTone, statusLabel] = STATUS_BADGE[existing?.status] || STATUS_BADGE.draft
-  const STEP_DESCS = ['Nom, tavsif va muqova', 'Bo‘limlar, darslar, testlar', 'Tekshirish va nashr']
-  const sectionsCount = existing?.sections?.length || 0
-  const lessonsCount = existing?.lessons_count || 0
 
   return (
-    <DashLayout kind={user?.role === 'admin' ? 'admin' : 'teacher'}>
-      <style>{gfsStyles}</style>
-
-      <div className="breadcrumb">
-        <Link to={`${base}/courses`}>Kurslar</Link>
-        <span className="sep">/</span>
-        <span>{isEdit ? 'Tahrirlash' : 'Yangi kurs'}</span>
-      </div>
-
-      {existing?.status === 'rejected' && existing?.rejection_note && (
-        <div className="card" style={{ background: 'var(--red-50)', borderColor: 'var(--red-600)', padding: 16, marginTop: 14, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <Icon name="alert" size={18} style={{ color: 'var(--red-600)', flexShrink: 0, marginTop: 2 }} />
-          <div>
-            <strong style={{ color: 'var(--red-600)' }}>Kurs rad etilgan</strong>
-            <div className="text-sm mt-1" style={{ color: 'var(--text-2)' }}>{existing.rejection_note}</div>
-            <div className="text-xs text-muted mt-1">Kamchiliklarni to'g'irlab, qaytadan moderatsiyaga yuboring.</div>
-          </div>
-        </div>
-      )}
-
-      <div className="cb-layout">
-        {/* ── Sidebar: live preview + vertical steps ── */}
-        <aside className="cb-side">
-          <div className="cb-preview fade-up">
-            <div className={`pthumb ${!thumbPreview ? `thumb thumb-${form.thumb_color}` : ''}`}>
-              {thumbPreview
-                ? <img src={thumbPreview} alt="" />
-                : <span>{form.thumb_emoji}</span>}
-            </div>
-            <div className="pbody">
-              <div className="ptitle">{form.title || 'Yangi kurs'}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                <span className={`badge badge-${statusTone}`}>{statusLabel}</span>
-                {isEdit && (
-                  <span className="text-xs text-muted">{sectionsCount} bo'lim · {lessonsCount} dars</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <nav className="cb-steps fade-up-d1">
-            {STEPS.map((s, i) => {
-              const idx = i + 1
-              const canGo = courseSlug || idx === 1
-              return (
-                <button key={s} type="button"
-                  className={`cb-step ${step === idx ? 'active' : ''} ${step > idx ? 'done' : ''} ${!canGo ? 'locked' : ''}`}
-                  onClick={() => canGo ? setStep(idx) : toast.error("Avval asosiy ma'lumotlarni saqlang")}>
-                  <span className="num">{step > idx ? <Icon name="check" size={14} /> : idx}</span>
-                  <span>
-                    <span className="t" style={{ display: 'block' }}>{s}</span>
-                    <span className="d" style={{ display: 'block' }}>{STEP_DESCS[i]}</span>
-                  </span>
-                </button>
-              )
-            })}
-          </nav>
-
-          {isEdit && courseSlug && (
-            <div className="cb-side-actions fade-up-d2">
-              <Link to={`${base}/courses/${courseSlug}/stats`} className="btn btn-secondary btn-sm btn-block">
-                <Icon name="chart" size={14} /> Statistika
-              </Link>
-              <Link to={`/courses/${courseSlug}`} className="btn btn-secondary btn-sm btn-block">
-                <Icon name="eye" size={14} /> Ko'rish
-              </Link>
-            </div>
-          )}
-        </aside>
-
-        {/* ── Content ── */}
-        <div className="cb-main">
-          {step === 1 && (
-            <div className="card fade-up" style={{ padding: 32 }}>
-              <BasicsStep
-                form={form} setForm={setForm}
-                cats={cats}
-                thumbPreview={thumbPreview} onPickThumb={onPickThumb}
-                onSave={async () => { await save.mutateAsync() }}
-                onNext={async () => { await save.mutateAsync(); setStep(2) }}
-                saving={save.isPending}
-              />
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="fade-up">
-              <CurriculumGFS courseSlug={courseSlug} onNext={() => setStep(3)} onBack={() => setStep(1)} />
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="card fade-up" style={{ padding: 32 }}>
-              <ReviewStep
-                courseSlug={courseSlug}
-                onBack={() => setStep(2)}
-                isAdmin={user?.role === 'admin'}
-                onSubmit={() => submitForReview.mutate()}
-                onPublishDirect={() => publishDirect.mutate()}
-                busy={submitForReview.isPending || publishDirect.isPending}
-              />
-            </div>
-          )}
+    <form className="cs-panel fade-up" onSubmit={save}>
+      <div className="cs-ph">
+        <span className="pi" style={{ background: 'var(--sun)' }}><Icon name="book" size={21} /></span>
+        <div>
+          <h2>{course ? "Kurs ma'lumotlari" : 'Yangi kurs'}</h2>
+          <p>{course ? "Nom, tavsif va muqova — o'quvchi kurs sahifasida shularni ko'radi." : "Avval kursga nom bering. Darslar va testlarni keyingi qadamda qo'shasiz."}</p>
         </div>
       </div>
-    </DashLayout>
-  )
-}
-
-/* ============================================================
-   STEP 1 — BASICS (unchanged, professional form)
-   ============================================================ */
-function BasicsStep({ form, setForm, cats, thumbPreview, onPickThumb, onSave, onNext, saving }) {
-  const update = (k, v) => setForm({ ...form, [k]: v })
-  return (
-    <>
-      <h2 style={{ fontSize: 20, fontFamily: 'var(--font-display)', marginBottom: 6 }}>Asosiy ma'lumot</h2>
-      <p className="text-muted text-sm mb-6">O'quvchilar sizning kursingizni qanday topishi haqida ma'lumot bering.</p>
 
       <div className="field">
-        <label className="label">Kurs nomi *</label>
-        <input className="input" value={form.title} onChange={e => update('title', e.target.value)}
-          placeholder="Masalan, Yer sayyorasi va materiklar" />
+        <label className="label">Kurs nomi</label>
+        <input className="input" style={{ height: 52, fontSize: 17, fontWeight: 700 }} value={f.title} onChange={e => set('title', e.target.value)}
+          placeholder="Masalan: Materiklar va okeanlar geografiyasi" maxLength={200} autoFocus={!course} required />
       </div>
-      <div className="field">
-        <label className="label">Tavsif</label>
-        <textarea className="textarea" rows={4} value={form.description} onChange={e => update('description', e.target.value)}
-          placeholder="O'quvchilar nima o'rganadi…" />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+
+      <div className="cs-g2">
         <div className="field">
           <label className="label">Kategoriya</label>
-          <select className="select" value={form.category_id || ''} onChange={e => update('category_id', e.target.value)}>
-            <option value="">— Tanlash —</option>
-            {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          <select className="select" value={f.category_id} onChange={e => set('category_id', e.target.value)}>
+            <option value="">Tanlanmagan</option>
+            {cats.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
           </select>
         </div>
         <div className="field">
           <label className="label">Daraja</label>
-          <select className="select" value={form.level} onChange={e => update('level', e.target.value)}>
-            <option value="beginner">Boshlang'ich</option>
-            <option value="intermediate">O'rta</option>
-            <option value="advanced">Murakkab</option>
+          <select className="select" value={f.level} onChange={e => set('level', e.target.value)}>
+            {LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </div>
       </div>
+
       <div className="field">
-        <label className="label">Muqova rasm</label>
-        <ThumbUpload preview={thumbPreview} emoji={form.thumb_emoji} color={form.thumb_color} onPick={onPickThumb} />
-        <div className="text-xs text-muted mt-2">Tavsiya: 1280×720. Rasm yuklamasangiz, emoji+rang ishlatiladi.</div>
-      </div>
-      <div className="field">
-        <label className="label">Emoji</label>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {EMOJIS.map(e => (
-            <button key={e} type="button" onClick={() => update('thumb_emoji', e)}
-              style={{ width: 44, height: 44, borderRadius: 8,
-                border: `2px solid ${form.thumb_emoji === e ? 'var(--green-600)' : 'var(--border)'}`,
-                background: 'var(--white)', fontSize: 22, cursor: 'pointer' }}>{e}</button>
-          ))}
-        </div>
-      </div>
-      <div className="field">
-        <label className="label">Muqova rangi</label>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {COLORS.map(c => (
-            <button key={c} type="button" onClick={() => update('thumb_color', c)}
-              className={`thumb thumb-${c}`}
-              style={{ width: 72, height: 48, fontSize: 18,
-                border: `2px solid ${form.thumb_color === c ? 'var(--green-600)' : 'transparent'}`,
-                cursor: 'pointer' }}>{form.thumb_emoji}</button>
-          ))}
-        </div>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 24 }}>
-        <button className="btn btn-secondary" onClick={onSave} disabled={saving || !form.title}>
-          {saving ? 'Saqlanmoqda…' : 'Qoralama sifatida saqlash'}
-        </button>
-        <button className="btn btn-primary" onClick={onNext} disabled={saving || !form.title}>
-          Keyingi <Icon name="arrowR" size={14} />
-        </button>
-      </div>
-    </>
-  )
-}
-
-function ThumbUpload({ preview, emoji, color, onPick }) {
-  return (
-    <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
-      <div style={{ width: 200, aspectRatio: '16/9', borderRadius: 10, overflow: 'hidden',
-        border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: preview ? '#000' : '' }}
-        className={!preview ? `thumb thumb-${color}` : ''}>
-        {preview ? <img src={preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 56 }}>{emoji}</span>}
-      </div>
-      <label style={{
-        flex: 1, border: '1.5px dashed var(--border)', borderRadius: 10, padding: 24,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', transition: 'border-color .15s',
-      }}>
-        <div style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--green-50)', color: 'var(--green-600)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-          <Icon name="upload" size={18} />
-        </div>
-        <div style={{ fontWeight: 600, fontSize: 14 }}>Rasm yuklash uchun bosing</div>
-        <div className="text-xs text-muted mt-1">yoki shu yerga sudrang</div>
-        <input type="file" accept="image/*" hidden onChange={e => onPick(e.target.files?.[0])} />
-      </label>
-    </div>
-  )
-}
-
-/* ============================================================
-   STEP 2 — CURRICULUM (Google Forms style, fully inline)
-   ============================================================ */
-function CurriculumGFS({ courseSlug, onNext, onBack }) {
-  const [focusedSection, setFocusedSection] = useState(null)
-  const [editingLesson, setEditingLesson] = useState(null)   // {sectionId, lessonId|'new'}
-  const [editingTest, setEditingTest] = useState(null)       // {sectionId, testId|'new'}
-  const [editingQuestion, setEditingQuestion] = useState(null) // {testId, questionId|'new'}
-
-  const { data: course, refetch } = useQuery({
-    queryKey: ['edit-course', courseSlug],
-    queryFn: () => api.get(`/courses/${courseSlug}/`).then(r => r.data),
-    enabled: !!courseSlug,
-  })
-  const sections = course?.sections || []
-
-  async function addSection() {
-    const { data } = await api.post(`/courses/${courseSlug}/sections/`, {
-      title: "Yangi bo'lim", order: sections.length + 1,
-    })
-    refetch()
-    setFocusedSection(data.id)
-  }
-
-  async function updateSectionTitle(id, title) {
-    await api.patch(`/sections/${id}/`, { title })
-    refetch()
-  }
-
-  async function delSection(id) {
-    if (!confirm("Bo'limni o'chirishni tasdiqlaysizmi? Ichidagi darslar ham o'chiriladi.")) return
-    await api.delete(`/sections/${id}/`); refetch(); toast.success("O'chirildi")
-  }
-
-  // Reorder sections — renumber the whole list so duplicates can't appear
-  async function moveSection(idx, dir) {
-    const target = idx + dir
-    if (target < 0 || target >= sections.length) return
-    const arr = [...sections]
-    const [it] = arr.splice(idx, 1)
-    arr.splice(target, 0, it)
-    await Promise.all(arr.map((s, i) => api.patch(`/sections/${s.id}/`, { order: i + 1 })))
-    refetch()
-  }
-
-  if (!courseSlug) {
-    return <div className="card" style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)' }}>
-      Avval asosiy ma'lumotlarni saqlang
-    </div>
-  }
-
-  return (
-    <>
-      <div className="card" style={{ padding: 24, marginBottom: 16, background: 'linear-gradient(135deg, var(--green-50), var(--white))' }}>
-        <h2 style={{ fontSize: 20, fontFamily: 'var(--font-display)', marginBottom: 4 }}>Bo'limlar va darslar</h2>
-        <p className="text-muted text-sm">Bo'lim nomini yozing, darslarni qo'shing. Hammasi avtomatik saqlanadi.</p>
+        <label className="label">Tavsif</label>
+        <RichTextEditor value={f.description} onChange={v => set('description', v)} minHeight={140}
+          placeholder="Kursda nimalar o'rgatiladi? Kimlar uchun? Qanday natijaga erishiladi?" />
       </div>
 
-      {sections.length === 0 && (
-        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', marginBottom: 12 }}>
-          Hozircha bo'limlar yo'q. Pastdagi <strong>"Bo'lim qo'shish"</strong> tugmasini bosing.
-        </div>
-      )}
-
-      {sections.map((s, i) => (
-        <SectionCard key={s.id} section={s} index={i}
-          focused={focusedSection === s.id}
-          onFocus={() => setFocusedSection(s.id)}
-          onBlur={() => setFocusedSection(null)}
-          onRename={t => updateSectionTitle(s.id, t)}
-          onDelete={() => delSection(s.id)}
-          onMoveUp={i > 0 ? () => moveSection(i, -1) : null}
-          onMoveDown={i < sections.length - 1 ? () => moveSection(i, 1) : null}
-          refetch={refetch}
-          editingLesson={editingLesson}
-          setEditingLesson={setEditingLesson}
-          editingTest={editingTest}
-          setEditingTest={setEditingTest}
-          editingQuestion={editingQuestion}
-          setEditingQuestion={setEditingQuestion}
-        />
-      ))}
-
-      <button className="gf-add-section" onClick={addSection}>
-        <Icon name="plus" size={16} /> Bo'lim qo'shish
-      </button>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
-        <button className="btn btn-secondary" onClick={onBack}><Icon name="arrowL" size={14} /> Oldingi</button>
-        <button className="btn btn-primary" onClick={onNext}>Keyingi <Icon name="arrowR" size={14} /></button>
-      </div>
-    </>
-  )
-}
-
-function SectionCard({ section, index, focused, onFocus, onBlur, onRename, onDelete, onMoveUp, onMoveDown, refetch,
-  editingLesson, setEditingLesson, editingTest, setEditingTest, editingQuestion, setEditingQuestion }) {
-  const [title, setTitle] = useState(section.title)
-  useEffect(() => setTitle(section.title), [section.title])
-
-  // Bo'limni yig'ib/ochib qo'yish (akkordeon). Ichida dars/test bori yig'ilgan,
-  // yangi/bo'sh bo'limlar ochiq holda boshlanadi — shunda kam scroll qilinadi.
-  const [open, setOpen] = useState(
-    () => (section.lessons?.length || 0) + (section.tests?.length || 0) === 0
-  )
-
-  function handleTitleBlur() {
-    if (title.trim() && title !== section.title) onRename(title.trim())
-    onBlur()
-  }
-
-  const lessonForm = editingLesson?.sectionId === section.id && editingLesson?.lessonId === 'new'
-  const testForm = editingTest?.sectionId === section.id && editingTest?.testId === 'new'
-
-  async function delTest(id) {
-    if (!confirm("Testni o'chirish?")) return
-    await api.delete(`/tests/${id}/`); refetch(); toast.success("O'chirildi")
-  }
-
-  // Reorder lessons inside this section
-  async function moveLesson(idx, dir) {
-    const lessons = section.lessons || []
-    const target = idx + dir
-    if (target < 0 || target >= lessons.length) return
-    const arr = [...lessons]
-    const [it] = arr.splice(idx, 1)
-    arr.splice(target, 0, it)
-    await Promise.all(arr.map((l, i) => api.patch(`/lessons/${l.id}/`, { order: i + 1 })))
-    refetch()
-  }
-
-  return (
-    <div className={`gf-card ${focused ? 'focused' : ''}`} onClick={onFocus}>
-      <div className="gf-section-head" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="icon-btn" onClick={() => setOpen(o => !o)}
-          title={open ? "Bo'limni yig'ish" : "Bo'limni ochish"} style={{ flexShrink: 0 }}>
-          <Icon name={open ? 'chevD' : 'chevR'} size={16} />
-        </button>
-        <div className="gf-section-num">{String(index + 1).padStart(2, '0')}</div>
-        <input
-          className="gf-section-title"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          onBlur={handleTitleBlur}
-          onFocus={onFocus}
-          onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
-          placeholder="Bo'lim nomi…"
-        />
-        <span className="gf-section-meta">{section.lessons?.length || 0} dars · {section.tests?.length || 0} test</span>
-        <button className="icon-btn" onClick={onMoveUp || undefined} disabled={!onMoveUp} title="Yuqoriga"
-          style={{ opacity: onMoveUp ? 1 : 0.3 }}><Icon name="chevU" size={15} /></button>
-        <button className="icon-btn" onClick={onMoveDown || undefined} disabled={!onMoveDown} title="Pastga"
-          style={{ opacity: onMoveDown ? 1 : 0.3 }}><Icon name="chevD" size={15} /></button>
-        <button className="icon-btn" onClick={onDelete} title="O'chirish"><Icon name="trash" size={15} /></button>
-      </div>
-
-      {open && (
-      <div className="gf-section-body">
-        {/* LESSONS */}
-        {(section.lessons || []).map((l, li) => (
-          editingLesson?.sectionId === section.id && editingLesson?.lessonId === l.id ? (
-            <LessonInlineForm key={l.id} sectionId={section.id} lesson={l}
-              onClose={() => setEditingLesson(null)}
-              onSaved={() => { refetch() }}
-            />
-          ) : (
-            <div key={l.id} className="gf-lesson">
-              <div className="gf-lesson-row">
-                <div className="gf-lesson-icon"><Icon name="play" size={14} /></div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="gf-lesson-title">{l.title}</div>
-                  <div className="gf-lesson-meta">
-                    {l.duration_minutes} daq · {l.video_type === 'youtube' ? 'YouTube' : l.video_file ? 'Yuklangan' : "Video yo'q"}
-                    {l.is_free_preview && <span style={{ marginLeft: 8, color: 'var(--green-600)' }}>· Bepul namuna</span>}
-                  </div>
-                </div>
-                <button className="icon-btn" disabled={li === 0} style={{ opacity: li === 0 ? 0.3 : 1 }}
-                  onClick={() => moveLesson(li, -1)} title="Yuqoriga"><Icon name="chevU" size={14} /></button>
-                <button className="icon-btn" disabled={li === (section.lessons?.length || 0) - 1}
-                  style={{ opacity: li === (section.lessons?.length || 0) - 1 ? 0.3 : 1 }}
-                  onClick={() => moveLesson(li, 1)} title="Pastga"><Icon name="chevD" size={14} /></button>
-                <button className="icon-btn" onClick={() => setEditingLesson({ sectionId: section.id, lessonId: l.id })} title="Tahrirlash">
-                  <Icon name="edit" size={14} />
-                </button>
-                <DeleteLessonBtn lesson={l} onDone={refetch} />
-              </div>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label className="label">Muqova</label>
+        <div className="cs-cover">
+          <div className={`cs-cover-prev ${preview ? '' : `thumb thumb-${f.thumb_color}`}`}>
+            {preview ? <img src={preview} alt="" /> : <span>{f.thumb_emoji}</span>}
+          </div>
+          <div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+              <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+                <Icon name="image" size={14} /> {preview ? 'Rasmni almashtirish' : 'Rasm yuklash'}
+                <input type="file" accept="image/*" hidden onChange={pick} />
+              </label>
+              {thumb && <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setThumb(null); setPreview(course?.thumbnail ? absUrl(course.thumbnail) : '') }}>Bekor qilish</button>}
             </div>
-          )
-        ))}
-
-        {lessonForm && (
-          <LessonInlineForm sectionId={section.id} lesson={null}
-            onClose={() => setEditingLesson(null)}
-            onSaved={() => { refetch() }}
-          />
-        )}
-
-        {/* TESTS */}
-        {(section.tests || []).map(t => (
-          editingTest?.sectionId === section.id && editingTest?.testId === t.id ? (
-            <TestInlineForm key={t.id} sectionId={section.id} test={t}
-              onClose={() => setEditingTest(null)}
-              onSaved={() => refetch()} />
-          ) : (
-            <TestCard key={t.id} test={t}
-              onEditTest={() => setEditingTest({ sectionId: section.id, testId: t.id })}
-              onDeleteTest={() => delTest(t.id)}
-              editingQuestion={editingQuestion}
-              setEditingQuestion={setEditingQuestion}
-              refetch={refetch} />
-          )
-        ))}
-
-        {testForm && (
-          <TestInlineForm sectionId={section.id} test={null}
-            onClose={() => setEditingTest(null)}
-            onSaved={(saved) => { refetch(); setEditingTest({ sectionId: section.id, testId: saved.id }) }} />
-        )}
-
-        <div className="gf-add-row">
-          <button className="gf-add-btn" onClick={() => setEditingLesson({ sectionId: section.id, lessonId: 'new' })}>
-            <Icon name="plus" size={14} /> Dars qo'shish
-          </button>
-          <button className="gf-add-btn" onClick={() => setEditingTest({ sectionId: section.id, testId: 'new' })}
-            style={{ borderColor: 'var(--blue-600)', color: 'var(--blue-600)' }}>
-            <Icon name="fileText" size={14} /> Test qo'shish
-          </button>
+            {!preview && (
+              <>
+                <div className="field-hint" style={{ margin: '0 0 8px' }}>Rasm bo'lmasa — emoji va rang tanlang:</div>
+                <div className="cs-emo" style={{ marginBottom: 10 }}>
+                  {EMOJIS.map(e => <button key={e} type="button" className={f.thumb_emoji === e ? 'on' : ''} onClick={() => set('thumb_emoji', e)}>{e}</button>)}
+                </div>
+                <div className="cs-col">
+                  {COLORS.map(c => <button key={c} type="button" className={`thumb-${c} ${f.thumb_color === c ? 'on' : ''}`} onClick={() => set('thumb_color', c)} aria-label={c} />)}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
-      )}
-    </div>
+
+      <div className="cs-foot">
+        {dirty && course && <span className="cs-dirty">Saqlanmagan o'zgarishlar bor</span>}
+        <span className="sp" />
+        <button type="submit" className="btn btn-primary" disabled={busy || (course && !dirty)}>
+          {busy ? 'Saqlanmoqda…' : course ? 'Saqlash' : <>Kursni yaratish <Icon name="arrowR" size={16} /></>}
+        </button>
+      </div>
+    </form>
   )
 }
 
-function DeleteLessonBtn({ lesson, onDone }) {
-  async function go() {
-    if (!confirm("Darsni o'chirish?")) return
-    await api.delete(`/lessons/${lesson.id}/`); onDone(); toast.success("O'chirildi")
-  }
-  return <button className="icon-btn" onClick={go} title="O'chirish"><Icon name="trash" size={14} /></button>
+/* ─────────────────────────── Lesson editor ─────────────────────────── */
+
+function LessonPanel({ lessonId, onSaved, onDirty, onDelete, onDuplicate }) {
+  const { data: lesson, isLoading, isError } = useQuery({
+    queryKey: ['lesson-edit', lessonId],
+    queryFn: () => api.get(`/lessons/${lessonId}/`).then(r => r.data),
+  })
+  if (isLoading) return <div className="cs-panel"><div className="loading-state"><span className="spinner" />Dars yuklanmoqda…</div></div>
+  if (isError || !lesson) return <div className="cs-panel"><EmptyState icon="alert" title="Darsni yuklab bo'lmadi" /></div>
+  return <LessonForm key={lesson.id} lesson={lesson} onSaved={onSaved} onDirty={onDirty} onDelete={onDelete} onDuplicate={onDuplicate} />
 }
 
-function LessonInlineForm({ sectionId, lesson, onClose, onSaved }) {
-  const [tab, setTab] = useState('details')
-  const [title, setTitle] = useState(lesson?.title || '')
-  const [videoType, setVideoType] = useState(lesson?.video_type || 'youtube')
-  const [youtubeUrl, setYoutubeUrl] = useState(lesson?.youtube_url || '')
-  const [videoFile, setVideoFile] = useState(null)
-  const [duration, setDuration] = useState(lesson?.duration_minutes || 10)
-  const [description, setDescription] = useState(lesson?.description || '')
-  const [isFreePreview, setIsFreePreview] = useState(lesson?.is_free_preview || false)
+function LessonForm({ lesson, onSaved, onDirty, onDelete, onDuplicate }) {
+  const qc = useQueryClient()
+  const init = () => ({
+    title: lesson.title, video_type: lesson.video_type, youtube_url: lesson.youtube_url || '',
+    duration_minutes: lesson.duration_minutes, description: lesson.description || '',
+    is_free_preview: lesson.is_free_preview,
+  })
+  const [f, setF] = useState(init)
+  const [file, setFile] = useState(null)
+  const [progress, setProgress] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [savedId, setSavedId] = useState(lesson?.id || null)
+  const [over, setOver] = useState(false)
+  const [tab, setTab] = useState('content')
+  const titleRef = useRef(null)
+  const abortRef = useRef(null)
+  const set = (k, v) => setF(s => ({ ...s, [k]: v }))
+  const dirty = !!file || JSON.stringify(f) !== JSON.stringify(init())
+  useEffect(() => { onDirty?.(dirty) }, [dirty, onDirty])
+  useEffect(() => { if (lesson.title === 'Yangi dars') { titleRef.current?.focus(); titleRef.current?.select() } }, [lesson.title])
+  useEffect(() => () => abortRef.current?.abort(), [])
 
-  // Auto-detect duration from the uploaded video's metadata
-  function onPickVideo(file) {
-    setVideoFile(file)
-    if (!file) return
-    const url = URL.createObjectURL(file)
+  const yid = ytId(f.youtube_url)
+  const ytInvalid = f.video_type === 'youtube' && f.youtube_url.trim() && !yid
+
+  function pickVideo(fl) {
+    if (!fl) return
+    if (!fl.type.startsWith('video/')) return toast.error('Faqat video fayl tanlang (MP4, WebM…)')
+    if (fl.size > 1024 * 1024 * 1024) return toast.error('Video hajmi 1 GB dan oshmasin')
+    setFile(fl)
+    // Read the real duration from the file so the teacher need not type it.
     const v = document.createElement('video')
     v.preload = 'metadata'
-    v.onloadedmetadata = () => {
-      if (Number.isFinite(v.duration) && v.duration > 0) {
-        const mins = Math.max(1, Math.round(v.duration / 60))
-        setDuration(mins)
-        toast(`Davomiylik avtomatik aniqlandi: ${mins} daqiqa`, { icon: '🎬' })
-      }
-      URL.revokeObjectURL(url)
-    }
-    v.onerror = () => URL.revokeObjectURL(url)
-    v.src = url
+    v.onloadedmetadata = () => { if (isFinite(v.duration)) set('duration_minutes', Math.max(1, Math.round(v.duration / 60))); URL.revokeObjectURL(v.src) }
+    v.src = URL.createObjectURL(fl)
   }
 
-  async function save() {
+  async function save(e) {
+    e?.preventDefault()
+    if (!f.title.trim()) return toast.error('Dars nomini kiriting')
+    if (ytInvalid) return toast.error("YouTube havolasi noto'g'ri")
     setBusy(true)
     try {
       const fd = new FormData()
-      fd.append('title', title)
-      fd.append('video_type', videoType)
-      fd.append('duration_minutes', duration)
-      fd.append('description', description)
-      fd.append('is_free_preview', isFreePreview)
-      if (videoType === 'youtube') fd.append('youtube_url', youtubeUrl)
-      if (videoType === 'upload' && videoFile) fd.append('video_file', videoFile)
-      const headers = { 'Content-Type': 'multipart/form-data' }
-      if (savedId) {
-        await api.patch(`/lessons/${savedId}/`, fd, { headers })
-      } else {
-        fd.append('order', 0)
-        const { data } = await api.post(`/sections/${sectionId}/lessons/`, fd, { headers })
-        setSavedId(data.id)
-      }
+      fd.append('title', f.title.trim())
+      fd.append('video_type', f.video_type)
+      fd.append('duration_minutes', String(Math.max(1, Number(f.duration_minutes) || 1)))
+      fd.append('description', f.description)
+      fd.append('is_free_preview', f.is_free_preview ? 'true' : 'false')
+      fd.append('youtube_url', f.video_type === 'youtube' ? f.youtube_url.trim() : '')
+      if (f.video_type === 'upload' && file) fd.append('video_file', file)
+      abortRef.current = new AbortController()
+      await api.patch(`/lessons/${lesson.id}/`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        signal: abortRef.current.signal,
+        onUploadProgress: file ? (p) => setProgress(p.total ? Math.round(p.loaded / p.total * 100) : null) : undefined,
+      })
+      setFile(null); setProgress(null)
+      await qc.invalidateQueries({ queryKey: ['lesson-edit', lesson.id] })
+      toast.success('Dars saqlandi')
       onSaved()
-      toast.success('Saqlandi')
-    } catch { toast.error('Saqlashda xatolik') }
-    finally { setBusy(false) }
+    } catch (err) {
+      if (err.code !== 'ERR_CANCELED') toast.error(errMsg(err, 'Darsni saqlashda xatolik'))
+      setProgress(null)
+    } finally { setBusy(false) }
   }
 
   return (
-    <div className="gf-lesson-form" onClick={e => e.stopPropagation()}>
-      <div className="gf-form-head">
-        <span className="badge-mini">DARS</span>
-        <span className="text-sm text-muted">{savedId ? `#${savedId}` : 'yangi'}</span>
-        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose} title="Yopish">
-          <Icon name="x" size={16} />
-        </button>
+    <form className="cs-panel fade-up" onSubmit={save}>
+      <div className="cs-ph">
+        <span className="pi" style={{ background: '#C9DCFF' }}><Icon name="video" size={21} /></span>
+        <div style={{ minWidth: 0 }}>
+          <h2>Dars</h2>
+          <p>Video, tavsif va qo'shimcha materiallar</p>
+        </div>
+        <span className="sp" />
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onDuplicate} title="Darsdan nusxa olish"><Icon name="file" size={14} /> Nusxa</button>
+        <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--red-600)' }} onClick={onDelete}><Icon name="trash" size={14} /> O'chirish</button>
       </div>
 
-      <input className="gf-input-lg" autoFocus value={title} onChange={e => setTitle(e.target.value)}
-        placeholder="Dars nomi" />
-
-      <div className="gf-tabs" style={{ marginTop: 18 }}>
-        <button className={tab === 'details' ? 'active' : ''} onClick={() => setTab('details')}>Asosiy</button>
-        <button className={tab === 'materials' ? 'active' : ''}
-          onClick={() => savedId ? setTab('materials') : toast('Avval darsni saqlang')}
-          disabled={!savedId}>Materiallar</button>
+      <div className="cs-vtabs">
+        <button type="button" className={tab === 'content' ? 'on' : ''} onClick={() => setTab('content')}><Icon name="video" size={14} /> Dars</button>
+        <button type="button" className={tab === 'materials' ? 'on' : ''} onClick={() => setTab('materials')}><Icon name="folder" size={14} /> Materiallar</button>
       </div>
 
-      {tab === 'details' && (
+      {tab === 'materials' ? (
+        <LessonMaterialsManager lessonId={lesson.id} />
+      ) : (
         <>
           <div className="field">
+            <label className="label">Dars nomi</label>
+            <input ref={titleRef} className="input" style={{ height: 50, fontSize: 16, fontWeight: 700 }} value={f.title}
+              onChange={e => set('title', e.target.value)} maxLength={200} placeholder="Masalan: Yerning ichki tuzilishi" />
+          </div>
+
+          <div className="field">
             <label className="label">Video</label>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              <button type="button" onClick={() => setVideoType('youtube')}
-                className={`btn ${videoType === 'youtube' ? 'btn-primary' : 'btn-secondary'} btn-sm`}>YouTube</button>
-              <button type="button" onClick={() => setVideoType('upload')}
-                className={`btn ${videoType === 'upload' ? 'btn-primary' : 'btn-secondary'} btn-sm`}>Fayl yuklash</button>
+            <div className="cs-vtabs" style={{ marginBottom: 10 }}>
+              <button type="button" className={f.video_type === 'youtube' ? 'on' : ''} onClick={() => set('video_type', 'youtube')}><Icon name="youtube" size={14} /> YouTube havola</button>
+              <button type="button" className={f.video_type === 'upload' ? 'on' : ''} onClick={() => set('video_type', 'upload')}><Icon name="upload" size={14} /> Fayl yuklash</button>
             </div>
-            {videoType === 'youtube' ? (
-              <input className="input" type="url" value={youtubeUrl} onChange={e => setYoutubeUrl(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=..." />
+            {f.video_type === 'youtube' ? (
+              <>
+                <input className="input" type="url" value={f.youtube_url} onChange={e => set('youtube_url', e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=…" />
+                {ytInvalid && <div className="field-error">Havola tanilmadi. youtube.com/watch?v=… yoki youtu.be/… ko'rinishida bo'lsin.</div>}
+                {yid && <div className="cs-video"><iframe src={`https://www.youtube.com/embed/${yid}`} title="Video" allowFullScreen /></div>}
+              </>
             ) : (
-              <FileInput accept="video/*" icon="video" hint="MP4, MOV — 500MB gacha (davomiylik avtomatik aniqlanadi)"
-                onPick={onPickVideo} value={lesson?.video_file} />
+              <>
+                <label className={`cs-drop ${over ? 'over' : ''}`}
+                  onDragOver={e => { e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)}
+                  onDrop={e => { e.preventDefault(); setOver(false); pickVideo(e.dataTransfer.files?.[0]) }}>
+                  <Icon name="upload" size={24} />
+                  <div style={{ fontWeight: 750 }}>{file ? file.name : lesson.video_file ? 'Boshqa video tanlash' : 'Videoni tanlang yoki shu yerga tashlang'}</div>
+                  <div className="text-xs text-muted">
+                    {file ? `${(file.size / 1024 / 1024).toFixed(1)} MB — «Saqlash» bosilganda yuklanadi` : 'MP4 yoki WebM, 1 GB gacha'}
+                  </div>
+                  <input type="file" accept="video/*" hidden onChange={e => pickVideo(e.target.files?.[0])} />
+                </label>
+                {progress !== null && (
+                  <>
+                    <div className="cs-upbar"><i style={{ width: `${progress}%` }} /></div>
+                    <div className="field-hint" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Yuklanmoqda… {progress}% — sahifani yopmang</span>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => abortRef.current?.abort()}>Bekor qilish</button>
+                    </div>
+                  </>
+                )}
+                {!file && lesson.video_file && (
+                  <div className="cs-video"><video src={absUrl(lesson.video_file)} controls preload="metadata" /></div>
+                )}
+              </>
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="cs-g2">
             <div className="field">
               <label className="label">Davomiyligi (daqiqa)</label>
-              <input className="input" type="number" min={1} value={duration} onChange={e => setDuration(e.target.value)} />
+              <input className="input" type="number" min={1} max={600} value={f.duration_minutes} onChange={e => set('duration_minutes', e.target.value)} />
             </div>
-            <div className="field" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 10 }}>
-              <label className="checkbox">
-                <input type="checkbox" checked={isFreePreview} onChange={e => setIsFreePreview(e.target.checked)} />
-                Bepul namuna
-              </label>
+            <div className="field">
+              <label className="label">Kirish huquqi</label>
+              <div className="cs-sw">
+                <div><div className="t">Bepul ko'rib chiqish</div><div className="d">Kursga yozilmaganlar ham ko'ra oladi</div></div>
+                <label className="switch"><input type="checkbox" checked={f.is_free_preview} onChange={e => set('is_free_preview', e.target.checked)} /><span /></label>
+              </div>
             </div>
           </div>
 
-          <div className="field">
-            <label className="label">Tavsif</label>
-            <RichTextEditor value={description} onChange={setDescription}
-              placeholder="Darsda nima o'rganiladi…" />
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label className="label">Dars matni / konspekt</label>
+            <RichTextEditor value={f.description} onChange={v => set('description', v)} minHeight={130}
+              placeholder="Darsning qisqacha mazmuni, muhim tushunchalar, foydali havolalar…" />
           </div>
 
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button className="btn btn-secondary btn-sm" onClick={onClose}>Yopish</button>
-            <button className="btn btn-primary btn-sm" disabled={busy || !title.trim()} onClick={save}>
-              {busy ? 'Saqlanmoqda…' : 'Saqlash'}
-            </button>
+          <div className="cs-foot">
+            {dirty && <span className="cs-dirty">Saqlanmagan o'zgarishlar bor</span>}
+            <span className="sp" />
+            <button type="submit" className="btn btn-primary" disabled={busy || !dirty}>{busy ? 'Saqlanmoqda…' : 'Darsni saqlash'}</button>
           </div>
         </>
       )}
-
-      {tab === 'materials' && savedId && <LessonMaterialsManager lessonId={savedId} />}
-    </div>
+    </form>
   )
 }
 
-function TestCard({ test, onEditTest, onDeleteTest, editingQuestion, setEditingQuestion, refetch }) {
-  const [open, setOpen] = useState(true)
+/* ─────────────────────────── Test panel ─────────────────────────── */
 
-  const { data: details, refetch: refetchT } = useQuery({
-    queryKey: ['test-questions', test.id],
-    queryFn: () => api.get(`/tests/${test.id}/detail/`).then(r => r.data),
-    enabled: open,
-  })
-
-  async function delQ(qid) {
-    if (!confirm("Savolni o'chirish?")) return
-    await api.delete(`/questions/${qid}/`); refetchT(); refetch(); toast.success("O'chirildi")
-  }
-
+function TestPanel({ testId, onChanged, onDelete, onDuplicate }) {
   return (
-    <div style={{ padding: 14, background: 'var(--bg-soft)', borderRadius: 10, marginBottom: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div className="gf-lesson-icon test"><Icon name="fileText" size={14} /></div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="gf-lesson-title">{test.title}</div>
-          <div className="gf-lesson-meta">{test.question_count} savol · O'tish bali {test.pass_percent || 60}%</div>
+    <div className="cs-panel fade-up">
+      <div className="cs-ph">
+        <span className="pi" style={{ background: '#DAD0FF' }}><Icon name="fileText" size={21} /></span>
+        <div>
+          <h2>Test</h2>
+          <p>Savollar, sozlamalar va o'quvchilar natijalari</p>
         </div>
-        <button className="icon-btn" onClick={() => setOpen(o => !o)}><Icon name={open ? 'chevU' : 'chevD'} size={14} /></button>
-        <button className="icon-btn" onClick={onEditTest}><Icon name="edit" size={14} /></button>
-        <button className="icon-btn" onClick={onDeleteTest}><Icon name="trash" size={14} /></button>
+        <span className="sp" />
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onDuplicate}><Icon name="file" size={14} /> Nusxa</button>
+        <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--red-600)' }} onClick={onDelete}><Icon name="trash" size={14} /> O'chirish</button>
       </div>
-
-      {open && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-2)' }}>
-          {(details?.questions || []).map((q, i) => (
-            editingQuestion?.testId === test.id && editingQuestion?.questionId === q.id ? (
-              <QuestionInlineForm key={q.id} testId={test.id} question={q}
-                onClose={() => setEditingQuestion(null)}
-                onSaved={() => { refetchT(); refetch() }} />
-            ) : (
-              <div key={q.id} className="gf-q-card" style={{ background: 'var(--white)' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <span style={{ width: 24, height: 24, borderRadius: 999, background: 'var(--green-50)', color: 'var(--green-600)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
-                  <div style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{q.text}</div>
-                  <button className="icon-btn" onClick={() => setEditingQuestion({ testId: test.id, questionId: q.id })}><Icon name="edit" size={13} /></button>
-                  <button className="icon-btn" onClick={() => delQ(q.id)}><Icon name="trash" size={13} /></button>
-                </div>
-                <div style={{ marginTop: 10, paddingLeft: 34, fontSize: 13, color: 'var(--text-3)' }}>
-                  {q.options.length} variant
-                </div>
-              </div>
-            )
-          ))}
-
-          {editingQuestion?.testId === test.id && editingQuestion?.questionId === 'new' && (
-            <QuestionInlineForm testId={test.id} question={null}
-              onClose={() => setEditingQuestion(null)}
-              onSaved={() => { refetchT(); refetch() }} />
-          )}
-
-          <button className="gf-add-btn" style={{ marginTop: 6 }}
-            onClick={() => setEditingQuestion({ testId: test.id, questionId: 'new' })}>
-            <Icon name="plus" size={14} /> Savol qo'shish
-          </button>
-        </div>
-      )}
+      <TestEditor key={testId} testId={testId} onChanged={onChanged} />
     </div>
   )
 }
 
-function TestInlineForm({ sectionId, test, onClose, onSaved }) {
-  const [title, setTitle] = useState(test?.title || '')
-  const [pass, setPass] = useState(test?.pass_percent || 60)
-  const [time, setTime] = useState(test?.time_limit_minutes || '')
-  const [busy, setBusy] = useState(false)
+/* ─────────────────────────── Publish panel ─────────────────────────── */
 
-  async function save() {
+function PublishPanel({ course, tree, isAdmin, onChanged, goTo }) {
+  const [busy, setBusy] = useState(false)
+  const items = tree.flatMap(s => s.items)
+  const lessons = items.filter(i => i.kind === 'lesson')
+  const tests = items.filter(i => i.kind === 'test')
+  const emptyTests = tests.filter(t => !t.question_count)
+  const emptySections = tree.filter(s => s.items.length === 0)
+  const plainDesc = (course.description || '').replace(/<[^>]+>/g, '').trim()
+
+  const checks = [
+    { ok: course.title.trim().length >= 3, req: true, t: 'Kurs nomi', d: course.title, go: 'info' },
+    { ok: plainDesc.length >= 40, req: true, t: 'Tavsif (kamida 40 ta belgi)', d: plainDesc ? `${plainDesc.length} ta belgi` : "Tavsif yozilmagan", go: 'info' },
+    { ok: !!course.category, req: false, t: 'Kategoriya', d: course.category?.name || "Tanlanmagan — katalogda topish qiyinlashadi", go: 'info' },
+    { ok: lessons.length >= 1, req: true, t: 'Kamida bitta dars', d: `${tree.length} bo'lim · ${lessons.length} dars · ${tests.length} test` },
+    { ok: emptySections.length === 0, req: false, t: "Bo'sh bo'limlar yo'q", d: emptySections.length ? `Bo'sh: ${emptySections.map(s => s.title).join(', ')}` : "Hamma bo'limda kontent bor" },
+    { ok: emptyTests.length === 0, req: true, t: 'Har bir testda savol bor', d: emptyTests.length ? `Savolsiz: ${emptyTests.map(t => t.title).join(', ')}` : tests.length ? 'Hammasi tayyor' : "Kursda test yo'q", go: emptyTests[0] ? { kind: 'test', id: emptyTests[0].id } : null },
+  ]
+  const blocking = checks.filter(c => c.req && !c.ok)
+  const ready = blocking.length === 0
+  const minutes = lessons.reduce((s, l) => s + (l.duration_minutes || 0), 0)
+
+  async function setStatus(status, msg) {
     setBusy(true)
     try {
-      const payload = { title, pass_percent: pass, time_limit_minutes: time || null, section: sectionId }
-      let saved
-      if (test?.id) {
-        const { data } = await api.patch(`/tests/${test.id}/`, payload); saved = data
-      } else {
-        const { data } = await api.post('/tests/', payload); saved = data
-      }
-      toast.success('Saqlandi'); onSaved(saved)
-    } catch { toast.error('Xatolik') }
+      await api.patch(`/courses/${course.slug}/`, { status })
+      toast.success(msg)
+      onChanged()
+    } catch (e) { toast.error(errMsg(e, 'Holatni o\'zgartirishda xatolik')) }
     finally { setBusy(false) }
   }
 
   return (
-    <div className="gf-lesson-form" style={{ borderColor: 'var(--blue-600)', boxShadow: '0 10px 24px -10px rgba(37,99,235,0.2)' }}>
-      <div className="gf-form-head">
-        <span className="badge-mini test">TEST</span>
-        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><Icon name="x" size={16} /></button>
-      </div>
-      <input className="gf-input-lg" autoFocus value={title} onChange={e => setTitle(e.target.value)}
-        placeholder="Test nomi" />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 18 }}>
-        <div className="field">
-          <label className="label">O'tish bali (%)</label>
-          <input className="input" type="number" min={0} max={100} value={pass} onChange={e => setPass(e.target.value)} />
+    <div className="cs-panel fade-up">
+      <div className="cs-ph">
+        <span className="pi" style={{ background: '#8FE0B4' }}><Icon name="zap" size={21} /></span>
+        <div>
+          <h2>Nashr etish</h2>
+          <p>Kursni tekshirib, o'quvchilarga oching</p>
         </div>
-        <div className="field">
-          <label className="label">Vaqt chegarasi (daq, ixtiyoriy)</label>
-          <input className="input" type="number" min={1} value={time} onChange={e => setTime(e.target.value)} />
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button className="btn btn-secondary btn-sm" onClick={onClose}>Yopish</button>
-        <button className="btn btn-primary btn-sm" disabled={busy || !title.trim()} onClick={save}>
-          {busy ? 'Saqlanmoqda…' : 'Saqlash'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function QuestionInlineForm({ testId, question, onClose, onSaved }) {
-  const [text, setText] = useState(question?.text || '')
-  const [options, setOptions] = useState(() => {
-    if (question?.options?.length) {
-      // Backend sends is_correct to the course owner; keep the real answer.
-      const opts = question.options.map((o, i) => ({ text: o.text, is_correct: !!o.is_correct, order: i }))
-      if (!opts.some(o => o.is_correct)) opts[0].is_correct = true
-      return opts
-    }
-    return [0, 1, 2, 3].map(i => ({ text: '', is_correct: i === 0, order: i }))
-  })
-  const [busy, setBusy] = useState(false)
-
-  const setOpt = (i, patch) => setOptions(options.map((o, idx) => idx === i ? { ...o, ...patch } : o))
-  const setCorrect = (i) => setOptions(options.map((o, idx) => ({ ...o, is_correct: idx === i })))
-
-  async function save() {
-    setBusy(true)
-    try {
-      const payload = { text, order: question?.order || 0, options }
-      if (question?.id) await api.patch(`/questions/${question.id}/`, payload)
-      else await api.post(`/tests/${testId}/questions/`, payload)
-      toast.success('Saqlandi'); onSaved()
-    } catch { toast.error('Xatolik') }
-    finally { setBusy(false) }
-  }
-
-  return (
-    <div className="gf-q-card focused" style={{ background: 'var(--white)' }}>
-      <div className="gf-form-head" style={{ marginBottom: 14 }}>
-        <span className="badge-mini">SAVOL</span>
-        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><Icon name="x" size={16} /></button>
+        <span className="sp" />
+        <CourseStatus status={course.status} />
       </div>
 
-      <textarea
-        className="gf-input-lg" rows={2} autoFocus
-        value={text} onChange={e => setText(e.target.value)}
-        placeholder="Savol matni" style={{ resize: 'vertical', minHeight: 50 }}
-      />
-
-      <div className="gf-q-opts" style={{ marginTop: 16 }}>
-        {options.map((o, i) => (
-          <div key={i} className={`gf-q-opt ${o.is_correct ? 'correct' : ''}`}>
-            <button type="button" onClick={() => setCorrect(i)} className="gf-q-opt-marker"
-              title="To'g'ri javob deb belgilash">
-              {String.fromCharCode(65 + i)}
-            </button>
-            <input value={o.text} onChange={e => setOpt(i, { text: e.target.value })}
-              placeholder={`Variant ${String.fromCharCode(65 + i)}`} />
-            {o.is_correct && <span className="badge badge-green">To'g'ri</span>}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-        <button className="btn btn-secondary btn-sm" onClick={onClose}>Yopish</button>
-        <button className="btn btn-primary btn-sm" disabled={busy || !text.trim() || options.some(o => !o.text.trim())} onClick={save}>
-          {busy ? 'Saqlanmoqda…' : 'Saqlash'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-/* ============================================================
-   STEP 4 — REVIEW
-   ============================================================ */
-function ReviewStep({ courseSlug, onBack, isAdmin, onSubmit, onPublishDirect, busy }) {
-  const { data: course } = useQuery({
-    queryKey: ['edit-course', courseSlug],
-    queryFn: () => api.get(`/courses/${courseSlug}/`).then(r => r.data),
-    enabled: !!courseSlug,
-  })
-  if (!course) return <div>Yuklanmoqda…</div>
-
-  const lessonsTotal = course.lessons_count
-  const testsTotal = (course.sections || []).reduce((s, x) => s + (x.test_count || 0), 0)
-  const canPublish = lessonsTotal > 0
-
-  return (
-    <>
-      <h2 style={{ fontSize: 20, fontFamily: 'var(--font-display)' }}>Ko'rib chiqish</h2>
-      <p className="text-muted text-sm mb-6">Hammasi to'g'rimi? Nashrga yuboring.</p>
-
-      <div style={{ background: 'var(--bg-soft)', borderRadius: 12, padding: 24, marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 20, alignItems: 'start' }}>
-          {course.thumbnail
-            ? <img src={absUrl(course.thumbnail)} alt="" style={{ width: 200, height: 124, objectFit: 'cover', borderRadius: 10, flexShrink: 0 }} />
-            : <div className={`thumb thumb-${course.thumb_color}`} style={{ width: 200, height: 124, fontSize: 56, borderRadius: 10, flexShrink: 0 }}>{course.thumb_emoji}</div>}
-          <div style={{ flex: 1 }}>
-            {course.category && <span className="badge badge-blue">{course.category.name}</span>}
-            <h3 style={{ fontSize: 22, margin: '8px 0' }}>{course.title}</h3>
-            <p className="text-sm text-muted">{course.description?.slice(0, 240)}</p>
-          </div>
-          <span className="badge badge-green">Bepul</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 24 }}>
-          <Tile v={course.sections?.length || 0} l="Bo'limlar" />
-          <Tile v={lessonsTotal} l="Darslar" />
-          <Tile v={testsTotal} l="Testlar" />
-          <Tile v={`~${Math.round((course.total_duration_minutes || 0) / 60)}s`} l="Davomiylik" />
-        </div>
-      </div>
-
-      {!canPublish && (
-        <div className="card" style={{ background: 'var(--amber-50)', border: '1px solid var(--amber-600)', padding: 16, marginBottom: 16 }}>
-          <strong>Diqqat:</strong> Nashr qilishdan oldin kamida bitta dars qo'shing.
-        </div>
+      {course.status === 'rejected' && course.rejection_note && (
+        <div className="cs-note red"><Icon name="alert" size={18} /><div><strong>Moderator izohi:</strong> {course.rejection_note}</div></div>
       )}
-
       {course.status === 'pending' && (
-        <div className="card" style={{ background: 'var(--amber-50)', border: '1px solid var(--amber-600)', padding: 16, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
-          <Icon name="clock" size={18} style={{ color: 'var(--amber-600)' }} />
-          <span>Kurs moderatsiyada. Admin tasdiqlagandan keyin ommaviy katalogga chiqadi.</span>
-        </div>
+        <div className="cs-note amber"><Icon name="clock" size={18} /><div>Kurs moderatsiyada. Administrator ko'rib chiqqach bildirishnoma olasiz. Shu vaqt ichida ham tahrirlashingiz mumkin.</div></div>
       )}
       {course.status === 'published' && (
-        <div className="card" style={{ background: 'var(--green-50)', border: '1px solid var(--green-200)', padding: 16, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
-          <Icon name="checkC" size={18} style={{ color: 'var(--green-600)' }} />
-          <span>Kurs nashr etilgan — kiritilgan o'zgarishlar darhol o'quvchilarga ko'rinadi.</span>
-        </div>
+        <div className="cs-note green"><Icon name="checkC" size={18} /><div>Kurs nashr etilgan va katalogda ko'rinadi. O'zgarishlar darhol o'quvchilarga yetib boradi.</div></div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
-        <button className="btn btn-secondary" onClick={onBack}><Icon name="arrowL" size={14} /> Oldingi</button>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {isAdmin && canPublish && course.status !== 'published' && (
-            <button className="btn btn-primary" onClick={onPublishDirect} disabled={busy}>
-              <Icon name="check" size={14} /> {busy ? 'Saqlanmoqda…' : 'Darhol nashr etish'}
-            </button>
-          )}
-          {!isAdmin && (course.status === 'draft' || course.status === 'rejected') && (
-            <button className="btn btn-primary" onClick={onSubmit} disabled={busy || !canPublish}>
-              <Icon name="check" size={14} /> {busy ? 'Yuborilmoqda…' : 'Moderatsiyaga yuborish'}
-            </button>
-          )}
-        </div>
+      <div className="cs-stats">
+        <div className="cs-stat"><div className="v">{tree.length}</div><div className="l">Bo'lim</div></div>
+        <div className="cs-stat"><div className="v">{lessons.length}</div><div className="l">Dars</div></div>
+        <div className="cs-stat"><div className="v">{tests.length}</div><div className="l">Test</div></div>
+        <div className="cs-stat"><div className="v">{minutes >= 60 ? `${Math.floor(minutes / 60)}s ${minutes % 60}d` : `${minutes}d`}</div><div className="l">Umumiy vaqt</div></div>
       </div>
-    </>
+
+      <h3 style={{ fontSize: 16, marginBottom: 4 }}>Tayyorlik ro'yxati</h3>
+      {checks.map((c, i) => (
+        <div key={i} className={`cs-check ${c.ok ? 'ok' : c.req ? 'no' : 'opt'}`}>
+          <span className="ci"><Icon name={c.ok ? 'check' : c.req ? 'x' : 'alert'} size={15} /></span>
+          <div style={{ minWidth: 0 }}>
+            <div className="ct">{c.t}{!c.req && <span className="text-muted" style={{ fontWeight: 500 }}> · tavsiya</span>}</div>
+            <div className="cd">{c.d}</div>
+          </div>
+          {!c.ok && c.go && <button className="btn btn-secondary btn-sm" onClick={() => goTo(c.go)}>Tuzatish</button>}
+        </div>
+      ))}
+
+      <div className="cs-foot">
+        <Link to={`/courses/${course.slug}`} target="_blank" className="btn btn-secondary"><Icon name="eye" size={15} /> Kurs sahifasini ko'rish</Link>
+        <span className="sp" />
+        {!ready && <span className="cs-dirty">{blocking.length} ta majburiy band bajarilmagan</span>}
+        {course.status === 'published' && (
+          <button className="btn btn-secondary" disabled={busy} onClick={() => setStatus('draft', 'Kurs qoralamaga qaytarildi')}>Qoralamaga qaytarish</button>
+        )}
+        {course.status === 'pending' && !isAdmin && (
+          <button className="btn btn-secondary" disabled={busy} onClick={() => setStatus('draft', "So'rov qaytarib olindi")}>So'rovni qaytarib olish</button>
+        )}
+        {isAdmin && course.status !== 'published' && (
+          <button className="btn btn-primary" disabled={busy || !ready} onClick={() => setStatus('published', 'Kurs nashr etildi')}>
+            <Icon name="zap" size={15} /> Nashr etish
+          </button>
+        )}
+        {!isAdmin && (course.status === 'draft' || course.status === 'rejected') && (
+          <button className="btn btn-primary" disabled={busy || !ready} onClick={() => setStatus('pending', 'Kurs moderatsiyaga yuborildi')}>
+            <Icon name="arrowR" size={15} /> Moderatsiyaga yuborish
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 
-function Tile({ v, l }) {
-  return (
-    <div style={{ background: 'var(--white)', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
-      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20 }}>{v}</div>
-      <div className="text-xs text-muted mt-1">{l}</div>
-    </div>
+/* ─────────────────────────── Studio ─────────────────────────── */
+
+export default function CourseBuilder() {
+  const { slug } = useParams()
+  const loc = useLocation()
+  const qc = useQueryClient()
+  const { user } = useAuth()
+  const adminArea = loc.pathname.startsWith('/admin-panel')
+  const isAdmin = user?.role === 'admin'
+  const base = adminArea ? '/admin-panel' : '/teacher'
+
+  const [tree, setTree] = useState([])
+  const [sel, setSel] = useState('info')        // 'info' | 'publish' | { kind, id }
+  const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const [drag, setDrag] = useState(null)        // { type: 'item'|'section', kind, id }
+  const [dropAt, setDropAt] = useState(null)    // { sectionId, index } | { before: sectionId, pos }
+  const [confirm, setConfirm] = useState(null)  // { title, text, action, danger }
+  const [pendingSel, setPendingSel] = useState(null)
+  const [collapsed, setCollapsed] = useState({})
+  const [outlineOpen, setOutlineOpen] = useState(true)
+  const [busyConfirm, setBusyConfirm] = useState(false)
+
+  const { data: course, isLoading, isError } = useQuery({
+    queryKey: ['studio-course', slug],
+    queryFn: () => api.get(`/courses/${slug}/`).then(r => r.data),
+    enabled: !!slug,
+    retry: false,
+  })
+
+  // Server → local outline (kept local so drag & drop feels instant).
+  useEffect(() => {
+    if (!course) return
+    setTree(course.sections.map(s => ({
+      id: s.id, title: s.title,
+      items: s.items || [
+        ...(s.lessons || []).map(l => ({ kind: 'lesson', ...l })),
+        ...(s.tests || []).map(t => ({ kind: 'test', ...t })),
+      ],
+    })))
+  }, [course])
+
+  // Warn before closing the tab with unsaved edits.
+  useEffect(() => {
+    if (!dirty) return
+    const h = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [dirty])
+
+  const reload = () => {
+    qc.invalidateQueries({ queryKey: ['studio-course', slug] })
+    qc.invalidateQueries({ queryKey: ['my-teaching'] })
+    qc.invalidateQueries({ queryKey: ['course', slug] })
+  }
+
+  const counts = useMemo(() => {
+    const items = tree.flatMap(s => s.items)
+    return { lessons: items.filter(i => i.kind === 'lesson').length, tests: items.filter(i => i.kind === 'test').length }
+  }, [tree])
+
+  const isSel = (kind, id) => typeof sel === 'object' && sel.kind === kind && sel.id === id
+
+  /** Change selection, asking first if the open form has unsaved edits. */
+  function select(next) {
+    if (dirty) { setPendingSel(next); return }
+    setSel(next)
+    if (window.innerWidth <= 1180) setOutlineOpen(false)
+  }
+
+  async function persist(next, { silent } = {}) {
+    setTree(next)
+    setSaving(true)
+    try {
+      await api.post(`/courses/${slug}/structure/`, {
+        sections: next.map(s => ({ id: s.id, items: s.items.map(i => ({ kind: i.kind, id: i.id })) })),
+      })
+      if (!silent) reload()
+    } catch (e) {
+      toast.error(errMsg(e, "Tartibni saqlab bo'lmadi"))
+      reload()
+    } finally { setSaving(false) }
+  }
+
+  /* ── sections ── */
+  async function addSection() {
+    try {
+      const { data } = await api.post(`/courses/${slug}/sections/`, { title: `${tree.length + 1}-bo'lim` })
+      setTree(t => [...t, { id: data.id, title: data.title, items: [] }])
+      reload()
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`cs-sec-${data.id}`)
+        el?.focus(); el?.select()
+      })
+    } catch (e) { toast.error(errMsg(e, "Bo'lim qo'shib bo'lmadi")) }
+  }
+  async function renameSection(id, title) {
+    const cur = tree.find(s => s.id === id)
+    const clean = title.trim()
+    if (!cur || !clean || clean === cur.title) {
+      if (!clean) setTree(t => t.map(s => s.id === id ? { ...s } : s))
+      return
+    }
+    setTree(t => t.map(s => s.id === id ? { ...s, title: clean } : s))
+    try { await api.patch(`/sections/${id}/`, { title: clean }); reload() }
+    catch (e) { toast.error(errMsg(e, "Nomini saqlab bo'lmadi")); reload() }
+  }
+  function moveSection(i, dir) {
+    const j = i + dir
+    if (j < 0 || j >= tree.length) return
+    const next = [...tree]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    persist(next)
+  }
+  function askDeleteSection(s) {
+    setConfirm({
+      danger: true, title: "Bo'limni o'chirish",
+      text: s.items.length
+        ? `«${s.title}» bo'limi ichidagi ${s.items.length} ta dars/test bilan birga o'chiriladi. Bu amalni qaytarib bo'lmaydi.`
+        : `«${s.title}» bo'limi o'chiriladi.`,
+      action: async () => {
+        await api.delete(`/sections/${s.id}/`)
+        if (typeof sel === 'object' && s.items.some(i => i.kind === sel.kind && i.id === sel.id)) { setDirty(false); setSel('info') }
+        toast.success("Bo'lim o'chirildi"); reload()
+      },
+    })
+  }
+
+  /* ── items ── */
+  async function addItem(kind, sectionId, index) {
+    try {
+      const { data } = kind === 'lesson'
+        ? await api.post(`/sections/${sectionId}/lessons/`, { title: 'Yangi dars', video_type: 'youtube', duration_minutes: 10 })
+        : await api.post('/tests/', { title: 'Yangi test', section: sectionId, pass_percent: 60 })
+      const item = kind === 'lesson'
+        ? { kind, id: data.id, title: data.title, duration_minutes: data.duration_minutes, video_type: 'youtube', _new: true }
+        : { kind, id: data.id, title: data.title, question_count: 0, pass_percent: 60 }
+      const next = tree.map(s => {
+        if (s.id !== sectionId) return s
+        const items = [...s.items]
+        items.splice(index ?? items.length, 0, item)
+        return { ...s, items }
+      })
+      setCollapsed(c => ({ ...c, [sectionId]: false }))
+      await persist(next)
+      setDirty(false)
+      setSel({ kind, id: data.id })
+      if (window.innerWidth <= 1180) setOutlineOpen(false)
+    } catch (e) { toast.error(errMsg(e, kind === 'lesson' ? "Dars qo'shib bo'lmadi" : "Test qo'shib bo'lmadi")) }
+  }
+  function moveItem(sectionId, i, dir) {
+    const si = tree.findIndex(s => s.id === sectionId)
+    const next = tree.map(s => ({ ...s, items: [...s.items] }))
+    const items = next[si].items
+    const j = i + dir
+    if (j >= 0 && j < items.length) {
+      ;[items[i], items[j]] = [items[j], items[i]]
+    } else {
+      // Hop into the neighbouring section.
+      const ti = si + dir
+      if (ti < 0 || ti >= next.length) return
+      const [it] = items.splice(i, 1)
+      if (dir < 0) next[ti].items.push(it); else next[ti].items.unshift(it)
+      setCollapsed(c => ({ ...c, [next[ti].id]: false }))
+    }
+    persist(next)
+  }
+  function askDeleteItem(it) {
+    setConfirm({
+      danger: true, title: it.kind === 'lesson' ? "Darsni o'chirish" : "Testni o'chirish",
+      text: it.kind === 'lesson'
+        ? `«${it.title}» darsi videosi, materiallari va o'quvchilar progressi bilan birga o'chiriladi.`
+        : `«${it.title}» testi barcha savollari va o'quvchilar natijalari bilan birga o'chiriladi.`,
+      action: async () => {
+        await api.delete(it.kind === 'lesson' ? `/lessons/${it.id}/` : `/tests/${it.id}/`)
+        if (isSel(it.kind, it.id)) { setDirty(false); setSel('info') }
+        toast.success("O'chirildi"); reload()
+      },
+    })
+  }
+  async function duplicateItem(it) {
+    try {
+      const { data } = await api.post(it.kind === 'lesson' ? `/lessons/${it.id}/duplicate/` : `/tests/${it.id}/duplicate/`)
+      // Place the copy right after the original.
+      const next = tree.map(s => {
+        const i = s.items.findIndex(x => x.kind === it.kind && x.id === it.id)
+        if (i < 0) return s
+        const items = [...s.items]
+        items.splice(i + 1, 0, { ...it, id: data.id, title: data.title })
+        return { ...s, items }
+      })
+      await persist(next)
+      toast.success('Nusxa yaratildi')
+      setDirty(false)
+      setSel({ kind: it.kind, id: data.id })
+    } catch (e) { toast.error(errMsg(e, "Nusxalab bo'lmadi")) }
+  }
+
+  /* ── drag & drop ── */
+  function endDrag() { setDrag(null); setDropAt(null) }
+  function dropItem() {
+    if (!drag || drag.type !== 'item' || !dropAt || dropAt.sectionId == null) return endDrag()
+    let moved = null
+    let fromSection = null
+    let fromIndex = -1
+    tree.forEach(s => {
+      const i = s.items.findIndex(x => x.kind === drag.kind && x.id === drag.id)
+      if (i >= 0) { moved = s.items[i]; fromSection = s.id; fromIndex = i }
+    })
+    if (!moved) return endDrag()
+    let index = dropAt.index
+    if (fromSection === dropAt.sectionId) {
+      if (index === fromIndex || index === fromIndex + 1) return endDrag() // dropped in place
+      if (index > fromIndex) index -= 1
+    }
+    const next = tree.map(s => ({ ...s, items: s.items.filter(x => !(x.kind === drag.kind && x.id === drag.id)) }))
+    next.find(s => s.id === dropAt.sectionId).items.splice(index, 0, moved)
+    endDrag()
+    persist(next)
+  }
+  function dropSection() {
+    if (!drag || drag.type !== 'section' || !dropAt || dropAt.before == null || dropAt.before === drag.id) return endDrag()
+    const moved = tree.find(s => s.id === drag.id)
+    const rest = tree.filter(s => s.id !== drag.id)
+    let at = rest.findIndex(s => s.id === dropAt.before)
+    if (dropAt.pos === 'bot') at += 1
+    rest.splice(at, 0, moved)
+    endDrag()
+    persist(rest)
+  }
+
+  const gap = (sectionId, index) => {
+    const active = drag?.type === 'item' && dropAt?.sectionId === sectionId && dropAt?.index === index
+    return (
+      <div className={`cs-gap ${active ? 'drop' : ''}`}
+        onDragOver={e => { if (drag?.type !== 'item') return; e.preventDefault(); e.stopPropagation(); if (!active) setDropAt({ sectionId, index }) }}
+        onDrop={e => { if (drag?.type !== 'item') return; e.preventDefault(); e.stopPropagation(); dropItem() }}>
+        <span className="ins">
+          <button type="button" className="cs-ins" onClick={() => addItem('lesson', sectionId, index)}><Icon name="plus" size={10} /> Dars</button>
+          <button type="button" className="cs-ins" onClick={() => addItem('test', sectionId, index)}><Icon name="plus" size={10} /> Test</button>
+        </span>
+      </div>
+    )
+  }
+
+  /* ── render ── */
+  const shell = (children) => (
+    <DashLayout kind={adminArea ? 'admin' : 'teacher'}>
+      <style>{css}</style>
+      {children}
+    </DashLayout>
+  )
+
+  if (!slug) {
+    return shell(
+      <>
+        <div className="cs-top">
+          <Link to={`${base}/courses`} className="cs-back" aria-label="Orqaga"><Icon name="arrowL" size={18} /></Link>
+          <h1>Yangi kurs</h1>
+        </div>
+        <div style={{ maxWidth: 860 }}><CourseInfoPanel course={null} onDirty={setDirty} /></div>
+      </>,
+    )
+  }
+  if (isLoading) return shell(<div className="loading-state"><span className="spinner" />Kurs yuklanmoqda…</div>)
+  if (isError || !course) {
+    return shell(<EmptyState icon="alert" title="Kurs topilmadi" sub="U o'chirilgan yoki sizga tegishli emas."
+      action={<Link to={`${base}/courses`} className="btn btn-secondary btn-sm"><Icon name="arrowL" size={13} /> Kurslarga qaytish</Link>} />)
+  }
+
+  const selItem = typeof sel === 'object'
+    ? tree.flatMap(s => s.items).find(i => i.kind === sel.kind && i.id === sel.id)
+    : null
+
+  return shell(
+    <>
+      <div className="cs-top">
+        <Link to={`${base}/courses`} className="cs-back" aria-label="Kurslarga qaytish"><Icon name="arrowL" size={18} /></Link>
+        <h1 title={course.title}>{course.title}</h1>
+        <CourseStatus status={course.status} />
+        <span className="sp" />
+        <span className={`cs-saved ${saving ? 'busy' : ''}`}>
+          <Icon name={saving ? 'rotate' : 'check'} size={13} /> {saving ? 'SAQLANMOQDA…' : 'TARTIB SAQLANGAN'}
+        </span>
+        <Link to={`/courses/${course.slug}`} target="_blank" className="btn btn-secondary btn-sm"><Icon name="eye" size={14} /> Ko'rish</Link>
+        <button className="btn btn-primary btn-sm" onClick={() => select('publish')}><Icon name="zap" size={14} /> Nashr</button>
+      </div>
+
+      <div className="cs-grid">
+        {/* ───── Outline ───── */}
+        <aside className={`cs-out ${outlineOpen ? '' : 'collapsed'} ${drag ? 'cs-dragging' : ''}`}>
+          <div className="cs-out-head">
+            <button className={`cs-nav ${sel === 'info' ? 'on' : ''}`} onClick={() => select('info')}>
+              <span className="ni"><Icon name="book" size={15} /></span> Kurs ma'lumotlari
+            </button>
+            <button className={`cs-nav ${sel === 'publish' ? 'on' : ''}`} onClick={() => select('publish')}>
+              <span className="ni"><Icon name="zap" size={15} /></span> Nashr etish
+              <span className="nb">{counts.lessons} dars · {counts.tests} test</span>
+            </button>
+            <button className="cs-nav cs-mobile-toggle" onClick={() => setOutlineOpen(o => !o)}>
+              <span className="ni"><Icon name="list" size={15} /></span> Kurs tuzilmasi
+              <span className="nb"><Icon name={outlineOpen ? 'chevU' : 'chevD'} size={15} /></span>
+            </button>
+          </div>
+
+          <div className="cs-out-body" onDragOver={e => { if (drag) e.preventDefault() }}>
+            {tree.length === 0 && (
+              <EmptyState small icon="layout" title="Tuzilma bo'sh" sub="Birinchi bo'limni qo'shing, so'ng unga darslar va testlar joylang." />
+            )}
+            {tree.map((s, si) => {
+              const secOver = drag?.type === 'section' && dropAt?.before === s.id && drag.id !== s.id
+              const closed = collapsed[s.id]
+              return (
+                <div key={s.id}
+                  className={`cs-sec ${drag?.type === 'section' && drag.id === s.id ? 'dragging' : ''} ${secOver ? (dropAt.pos === 'top' ? 'over-top' : 'over-bot') : ''}`}
+                  onDragOver={e => {
+                    if (drag?.type === 'section') {
+                      e.preventDefault()
+                      const r = e.currentTarget.getBoundingClientRect()
+                      const pos = e.clientY < r.top + r.height / 2 ? 'top' : 'bot'
+                      if (dropAt?.before !== s.id || dropAt?.pos !== pos) setDropAt({ before: s.id, pos })
+                    } else if (drag?.type === 'item') {
+                      // Hovering the section itself (header / empty area) → append.
+                      e.preventDefault()
+                      if (dropAt?.sectionId !== s.id) setDropAt({ sectionId: s.id, index: s.items.length })
+                    }
+                  }}
+                  onDrop={e => { e.preventDefault(); if (drag?.type === 'section') dropSection(); else dropItem() }}>
+                  <div className="cs-sec-head">
+                    <span className="cs-grip" draggable title="Bo'limni sudrang"
+                      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', `s${s.id}`); setDrag({ type: 'section', id: s.id }) }}
+                      onDragEnd={endDrag}><Icon name="drag" size={16} /></span>
+                    <span className="cs-sec-n">{String(si + 1).padStart(2, '0')}</span>
+                    <input id={`cs-sec-${s.id}`} className="cs-sec-title" defaultValue={s.title} key={s.title} maxLength={200}
+                      aria-label="Bo'lim nomi"
+                      onBlur={e => { if (!e.target.value.trim()) e.target.value = s.title; renameSection(s.id, e.target.value) }}
+                      onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = s.title; e.target.blur() } }} />
+                    <button className="cs-mini" title="Yuqoriga" disabled={si === 0} onClick={() => moveSection(si, -1)}><Icon name="chevU" size={14} /></button>
+                    <button className="cs-mini" title="Pastga" disabled={si === tree.length - 1} onClick={() => moveSection(si, 1)}><Icon name="chevD" size={14} /></button>
+                    <button className="cs-mini danger" title="Bo'limni o'chirish" onClick={() => askDeleteSection(s)}><Icon name="trash" size={14} /></button>
+                    <button className="cs-mini" title={closed ? 'Ochish' : 'Yig\'ish'} onClick={() => setCollapsed(c => ({ ...c, [s.id]: !closed }))}>
+                      <Icon name={closed ? 'chevR' : 'chevD'} size={15} />
+                    </button>
+                  </div>
+
+                  {!closed && (
+                    <div className="cs-items">
+                      {s.items.length === 0 && <div className="cs-empty">Bo'lim bo'sh — dars yoki test qo'shing</div>}
+                      {s.items.map((it, i) => (
+                        <div key={`${it.kind}-${it.id}`}>
+                          {gap(s.id, i)}
+                          <div className={`cs-item ${isSel(it.kind, it.id) ? 'on' : ''} ${drag?.type === 'item' && drag.kind === it.kind && drag.id === it.id ? 'dragging' : ''}`}
+                            onClick={() => select({ kind: it.kind, id: it.id })}
+                            onDragOver={e => {
+                              if (drag?.type !== 'item') return
+                              e.preventDefault(); e.stopPropagation()
+                              const r = e.currentTarget.getBoundingClientRect()
+                              const index = e.clientY < r.top + r.height / 2 ? i : i + 1
+                              if (dropAt?.sectionId !== s.id || dropAt?.index !== index) setDropAt({ sectionId: s.id, index })
+                            }}
+                            onDrop={e => { if (drag?.type !== 'item') return; e.preventDefault(); e.stopPropagation(); dropItem() }}>
+                            <span className="cs-grip" draggable title="Sudrab istalgan joyga qo'ying" onClick={e => e.stopPropagation()}
+                              onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', `${it.kind}${it.id}`); setDrag({ type: 'item', kind: it.kind, id: it.id }) }}
+                              onDragEnd={endDrag}><Icon name="drag" size={15} /></span>
+                            <span className={`cs-ico ${it.kind}`}><Icon name={it.kind === 'lesson' ? 'play' : 'fileText'} size={14} /></span>
+                            <span className="tt">
+                              <span className="tn" style={{ display: 'block' }}>{it.title}</span>
+                              <span className="tm">
+                                {it.kind === 'lesson'
+                                  ? <>{it.duration_minutes} daq{it.is_free_preview && ' · bepul'}</>
+                                  : it.question_count
+                                    ? <>{it.question_count} savol · o'tish {it.pass_percent}%</>
+                                    : <span className="warn">Savol qo'shilmagan</span>}
+                              </span>
+                            </span>
+                            <span className="acts" onClick={e => e.stopPropagation()}>
+                              <button className="cs-mini" title="Yuqoriga" disabled={si === 0 && i === 0} onClick={() => moveItem(s.id, i, -1)}><Icon name="chevU" size={13} /></button>
+                              <button className="cs-mini" title="Pastga" disabled={si === tree.length - 1 && i === s.items.length - 1} onClick={() => moveItem(s.id, i, 1)}><Icon name="chevD" size={13} /></button>
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      {gap(s.id, s.items.length)}
+                      <div className="cs-add">
+                        <button type="button" onClick={() => addItem('lesson', s.id)}><Icon name="plus" size={13} /> Dars</button>
+                        <button type="button" onClick={() => addItem('test', s.id)}><Icon name="plus" size={13} /> Test</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="cs-out-foot">
+            <button className="btn btn-secondary btn-block btn-sm" onClick={addSection}><Icon name="plus" size={14} /> Bo'lim qo'shish</button>
+          </div>
+        </aside>
+
+        {/* ───── Editor ───── */}
+        <div style={{ minWidth: 0 }}>
+          {sel === 'info' && <CourseInfoPanel key={course.id} course={course} onSaved={() => { setDirty(false); reload() }} onDirty={setDirty} />}
+          {sel === 'publish' && <PublishPanel course={course} tree={tree} isAdmin={isAdmin} onChanged={reload} goTo={select} />}
+          {typeof sel === 'object' && sel.kind === 'lesson' && (
+            <LessonPanel key={sel.id} lessonId={sel.id} onDirty={setDirty}
+              onSaved={() => { setDirty(false); reload() }}
+              onDelete={() => selItem && askDeleteItem(selItem)}
+              onDuplicate={() => selItem && duplicateItem(selItem)} />
+          )}
+          {typeof sel === 'object' && sel.kind === 'test' && (
+            <TestPanel key={sel.id} testId={sel.id} onChanged={reload}
+              onDelete={() => selItem && askDeleteItem(selItem)}
+              onDuplicate={() => selItem && duplicateItem(selItem)} />
+          )}
+        </div>
+      </div>
+
+      {confirm && (
+        <Confirm danger={confirm.danger} title={confirm.title} text={confirm.text} confirmLabel="O'chirish" busy={busyConfirm}
+          onClose={() => setConfirm(null)}
+          onConfirm={async () => {
+            setBusyConfirm(true)
+            try { await confirm.action(); setConfirm(null) }
+            catch (e) { toast.error(errMsg(e, "Amalni bajarib bo'lmadi")) }
+            finally { setBusyConfirm(false) }
+          }} />
+      )}
+      {pendingSel && (
+        <Confirm title="Saqlanmagan o'zgarishlar" icon="alert" confirmLabel="Saqlamasdan o'tish" cancelLabel="Qolish"
+          text="Ochiq formadagi o'zgarishlar saqlanmagan. Boshqa bo'limga o'tsangiz, ular yo'qoladi."
+          onClose={() => setPendingSel(null)}
+          onConfirm={() => { setDirty(false); setSel(pendingSel); setPendingSel(null) }} />
+      )}
+    </>,
   )
 }

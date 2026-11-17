@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import api, { absUrl } from '../../api/client'
 import Navbar from '../../components/Navbar'
 import Icon from '../../components/Icon'
+import Confirm from '../../components/Confirm'
 import { useAuth } from '../../store/auth'
 import { sanitizeHtml, isHtmlContent } from '../../api/richText'
 
@@ -34,16 +35,25 @@ export default function LessonPlayer() {
     return null
   }, [course, lessonId])
 
-  // Build a flat ordered list of ALL items (lessons + tests, in section order, lessons before tests)
+  // Flat list of ALL items in the exact order the teacher arranged them
+  // (lessons and tests share one sequence inside each section).
   const ordered = useMemo(() => {
     if (!course) return []
     const out = []
     for (const s of course.sections || []) {
-      for (const l of s.lessons || []) {
-        out.push({ kind: 'lesson', id: l.id, lesson: l, sectionTitle: s.title, done: !!l.is_completed })
-      }
-      for (const t of s.tests || []) {
-        out.push({ kind: 'test', id: t.id, test: t, sectionTitle: s.title, done: !!t.is_passed })
+      const lessonsById = Object.fromEntries((s.lessons || []).map(l => [l.id, l]))
+      const items = s.items || [
+        ...(s.lessons || []).map(l => ({ kind: 'lesson', ...l })),
+        ...(s.tests || []).map(t => ({ kind: 'test', ...t })),
+      ]
+      for (const it of items) {
+        if (it.kind === 'lesson') {
+          const l = lessonsById[it.id] || it
+          out.push({ kind: 'lesson', id: l.id, lesson: l, sectionId: s.id, sectionTitle: s.title, done: !!l.is_completed })
+        } else {
+          // A test without questions cannot be taken, so it never blocks the path.
+          out.push({ kind: 'test', id: it.id, test: it, sectionId: s.id, sectionTitle: s.title, done: !!it.is_passed || !it.question_count })
+        }
       }
     }
     return out
@@ -110,8 +120,8 @@ export default function LessonPlayer() {
   const complete = useMutation({
     mutationFn: () => api.post(`/lessons/${lessonId}/complete/`).then(r => r.data),
     onSuccess: (data) => {
-      qc.invalidateQueries(['course', slug])
-      qc.invalidateQueries(['enrollments'])
+      qc.invalidateQueries({ queryKey: ['course', slug] })
+      qc.invalidateQueries({ queryKey: ['enrollments'] })
       // Course is only "complete" when EVERY lesson AND test is done (server-side check).
       if (data.completed) {
         toast.success("Tabriklaymiz! Kurs to'liq yakunlandi.")
@@ -143,240 +153,112 @@ export default function LessonPlayer() {
     return <><Navbar /><div className="loading-state"><span className="spinner" />Dars yuklanmoqda…</div></>
   }
 
+  const sectionIndex = (course.sections || []).findIndex(sec => sec.title === lesson.sectionTitle)
+  const nextUp = ordered[curOrderedIdx + 1]
+
   const embed = lesson.video_type === 'youtube' ? youtubeEmbed(lesson.youtube_url) : null
 
   return (
     <>
       <Navbar />
-      <div style={{ height: 3, background: 'var(--border-2)', position: 'sticky', top: 64, zIndex: 40 }}>
-        <div style={{ height: '100%', background: 'var(--green-600)', width: `${progress}%`, transition: '.4s' }} />
-      </div>
-      <style>{`
-        /* ── Video stage: dark cinematic frame ── */
-        .video-stage {
-          aspect-ratio: 16/9; position: relative;
-          background:
-            radial-gradient(ellipse 70% 90% at 50% 110%, rgba(14,131,69,0.20), transparent 65%),
-            linear-gradient(180deg, #070908 0%, #0a0d0b 100%);
-          background-color: #0a0d0b;
-        }
-        .video-empty {
-          height: 100%; display: flex; flex-direction: column; gap: 12px;
-          align-items: center; justify-content: center; color: rgba(255,255,255,0.45);
-        }
-        .video-empty .ring {
-          width: 84px; height: 84px; border-radius: 999px;
-          border: 1.5px solid rgba(255,255,255,0.14);
-          background: rgba(255,255,255,0.05);
-          display: flex; align-items: center; justify-content: center;
-        }
+      <style>{css}</style>
 
-        /* Uploaded-video player */
-        .upload-player { width: 100%; height: 100%; position: relative; }
-        .upload-player video { width: 100%; height: 100%; object-fit: contain; display: block; }
-        /* Hide the download button in Chrome/Edge native controls */
-        .upload-player video::-webkit-media-controls-download-button,
-        .upload-player video::-internal-media-controls-download-button { display: none !important; }
-        .upload-player video::-webkit-media-controls-enclosure { overflow: hidden; }
-        .upload-player video::-webkit-media-controls-panel { width: calc(100% + 32px); }
-
-        /* Big centered play overlay (shows while paused) */
-        .vp-overlay {
-          position: absolute; inset: 0; z-index: 3;
-          display: flex; align-items: center; justify-content: center;
-          background: linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.42));
-          border: none; cursor: pointer; padding: 0;
-          animation: vpFade .25s ease-out;
-        }
-        @keyframes vpFade { from { opacity: 0; } to { opacity: 1; } }
-        .vp-overlay .btn-ring {
-          width: 84px; height: 84px; border-radius: 999px;
-          background: rgba(255,255,255,0.96); color: var(--green-700);
-          display: flex; align-items: center; justify-content: center;
-          box-shadow: 0 0 0 10px rgba(255,255,255,0.14), 0 18px 50px -12px rgba(0,0,0,0.6);
-          transition: transform .18s ease, box-shadow .18s ease;
-        }
-        .vp-overlay:hover .btn-ring {
-          transform: scale(1.07);
-          box-shadow: 0 0 0 14px rgba(255,255,255,0.18), 0 22px 60px -12px rgba(0,0,0,0.65);
-        }
-        .vp-overlay .hint {
-          position: absolute; bottom: 22px; left: 0; right: 0; text-align: center;
-          color: rgba(255,255,255,0.75); font-size: 13px; font-weight: 500;
-          text-shadow: 0 1px 8px rgba(0,0,0,0.6);
-        }
-
-        /* Playback speed pills (top-left, fade in on hover) */
-        .vp-speed {
-          position: absolute; top: 14px; left: 16px; z-index: 4;
-          display: inline-flex; gap: 4px; padding: 4px;
-          background: rgba(0,0,0,0.5); border-radius: 999px;
-          backdrop-filter: blur(10px);
-          opacity: 0; transition: opacity .2s ease;
-        }
-        .upload-player:hover .vp-speed, .vp-speed.show { opacity: 1; }
-        .vp-speed button {
-          padding: 4px 11px; border-radius: 999px; border: none; cursor: pointer;
-          background: transparent; color: rgba(255,255,255,0.7);
-          font-size: 11.5px; font-weight: 600; font-family: var(--font-display);
-          transition: all .12s;
-        }
-        .vp-speed button:hover { color: white; }
-        .vp-speed button.on { background: rgba(255,255,255,0.94); color: #0a0d0b; }
-
-        /* Soft watermark */
-        .upload-watermark {
-          position: absolute; top: 14px; right: 16px;
-          padding: 5px 12px; border-radius: 999px;
-          background: rgba(0,0,0,0.45); color: rgba(255,255,255,0.85);
-          backdrop-filter: blur(8px);
-          font-family: var(--font-display); font-weight: 700; font-size: 12px;
-          letter-spacing: 0.06em;
-          pointer-events: none; z-index: 4;
-          display: inline-flex; align-items: center; gap: 6px;
-        }
-        .upload-watermark .dot {
-          width: 6px; height: 6px; border-radius: 999px; background: #4ade80;
-          box-shadow: 0 0 8px #4ade80;
-        }
-
-        /* ── "Keyingisiga o'tasizmi?" confirmation modal ── */
-        .lp-modal-back {
-          position: fixed; inset: 0; background: rgba(12,17,14,0.45); z-index: 100;
-          display: flex; align-items: center; justify-content: center; padding: 24px;
-          animation: vpFade .2s ease-out;
-        }
-        .lp-modal {
-          background: var(--white); border-radius: 18px; padding: 28px;
-          max-width: 420px; width: 100%; box-shadow: var(--shadow-pop);
-          animation: vpFade .25s ease-out;
-        }
-        .lp-modal-icon {
-          width: 56px; height: 56px; border-radius: 999px; margin: 0 auto 14px;
-          background: var(--green-50); color: var(--green-600);
-          display: flex; align-items: center; justify-content: center;
-        }
-      `}</style>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 24, padding: 24, maxWidth: 1500, margin: '0 auto', alignItems: 'start' }}>
-        <div className="card fade-up" style={{ padding: 0, overflow: 'hidden' }}>
-          <div className="video-stage">
+      <div className="lp">
+        <div className="lp-main fade-up">
+          {/* ── Video stage ── */}
+          <div className="lp-stage">
             {embed ? (
-              <iframe src={embed} style={{ width: '100%', height: '100%', border: 'none', position: 'relative', zIndex: 1 }} title={lesson.title} allow="autoplay; encrypted-media" allowFullScreen />
+              <iframe src={embed} title={lesson.title} allow="autoplay; encrypted-media" allowFullScreen />
             ) : lesson.video_file ? (
               <UploadedPlayer lesson={lesson} />
             ) : (
-              <div className="video-empty">
-                <div className="ring"><Icon name="video" size={32} /></div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>Bu darsga video biriktirilmagan</div>
-                <div style={{ fontSize: 12.5, opacity: 0.7 }}>Tavsif va materiallar pastda</div>
+              <div className="lp-novideo">
+                <span className="ic"><Icon name="book" size={30} /></span>
+                <b>Bu dars matn shaklida</b>
+                <span>Dars matni va materiallar pastda</span>
               </div>
             )}
           </div>
 
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)' }}>
-            <div className="breadcrumb" style={{ marginBottom: 8 }}>
-              <Link to={`/courses/${slug}`}>{course.title}</Link>
-              <span className="sep">/</span>
-              <span>{lesson.sectionTitle}</span>
+          {/* ── Title block ── */}
+          <div className="lp-head">
+            <div className="lp-crumbs">
+              <Link to={`/courses/${slug}`}><Icon name="arrowL" size={13} /> {course.title}</Link>
+              <span className="coord">{String(sectionIndex + 1).padStart(2, '0')} · {lesson.sectionTitle}</span>
             </div>
-            <h1 style={{ fontSize: 24, marginBottom: 8 }}>{lesson.title}</h1>
-            <div style={{ display: 'flex', gap: 16, fontSize: 13, color: 'var(--text-3)' }}>
-              <span><Icon name="clock" size={13} /> {lesson.duration_minutes} daqiqa</span>
+            <h1>{lesson.title}</h1>
+            <div className="lp-meta">
+              <span className="chip"><Icon name="clock" size={13} /> {lesson.duration_minutes} daqiqa</span>
+              <span className="chip">{curOrderedIdx + 1}-qadam / {totalItems}</span>
+              {lesson.is_completed && <span className="chip" style={{ background: 'var(--green-100)', color: 'var(--green-800)', borderColor: 'var(--green-600)' }}><Icon name="check" size={13} /> Tugatilgan</span>}
+              {canBypass && <span className="chip chip-sun"><Icon name="eye" size={13} /> Ko'rib chiqish rejimi</span>}
             </div>
           </div>
 
-          <LessonTabs
-            lesson={lesson}
-            prev={prev}
-            isLast={isLastItem}
-            slug={slug}
-            navigate={navigate}
-            onComplete={() => complete.mutate()}
-            onPreviewNext={promptNextPreview}
-            completePending={complete.isPending}
-            previewMode={canBypass}
-          />
+          <LessonTabs lesson={lesson} />
+
+          {/* ── Next step bar ── */}
+          <div className="lp-next">
+            <button className="btn btn-secondary" disabled={!prev} onClick={() => prev && navigate(`/learn/${slug}/${prev.id}`)}>
+              <Icon name="arrowL" size={15} /> Oldingi dars
+            </button>
+            <div className="nx">
+              {nextUp ? (
+                <>
+                  <span className="lb">Keyingi bekat</span>
+                  <b>{nextUp.kind === 'test' ? 'Test: ' : ''}{nextUp.kind === 'lesson' ? nextUp.lesson.title : nextUp.test.title}</b>
+                </>
+              ) : <><span className="lb">Marra</span><b>Bu kursning oxirgi qadami</b></>}
+            </div>
+            {canBypass ? (
+              <button className="btn btn-primary" disabled={isLastItem} onClick={promptNextPreview}>
+                {isLastItem ? "Oxirgi qadam" : 'Keyingisi'} <Icon name="arrowR" size={15} />
+              </button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => complete.mutate()} disabled={complete.isPending}>
+                {complete.isPending ? 'Saqlanmoqda…' : isLastItem ? 'Kursni tugatish' : lesson.is_completed ? 'Davom etish' : 'Darsni tugatdim'}
+                <Icon name={lesson.is_completed ? 'arrowR' : 'check'} size={15} />
+              </button>
+            )}
+          </div>
         </div>
 
-        <aside className="card fade-up-d2" style={{ padding: 0, position: 'sticky', top: 88, maxHeight: 'calc(100vh - 100px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-            <h4 style={{ fontSize: 14, fontFamily: 'var(--font-display)', marginBottom: 8 }}>Kurs dasturi</h4>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--text-3)' }}>
-              <div className="progress" style={{ flex: 1, height: 4 }}><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
+        {/* ── Route sidebar ── */}
+        <aside className="lp-side fade-up-d2">
+          <div className="lp-side-head">
+            <div className="t">
+              <h4>Kurs yo'li</h4>
               <span>{completedCount}/{totalItems}</span>
             </div>
+            <div className="lp-route"><i style={{ width: `${progress}%` }} /><b style={{ left: `${progress}%` }}>{progress}%</b></div>
           </div>
-          <div style={{ overflowY: 'auto', padding: '8px 0' }}>
-            {(course.sections || []).map((s, si) => (
-              <div key={s.id} style={{ padding: '8px 0' }}>
-                <div style={{ padding: '6px 20px', fontSize: 12, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>
-                  {si + 1}. {s.title}
-                </div>
-                {s.lessons.map(l => {
-                  const isActive = String(l.id) === String(lessonId)
-                  const locked = isLocked('lesson', l.id)
-                  const baseStyle = {
-                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px',
-                    textDecoration: 'none', fontSize: 13,
-                    background: isActive ? 'var(--green-50)' : 'transparent',
-                    color: locked ? 'var(--text-4)' : isActive ? 'var(--green-700)' : 'var(--text-2)',
-                    fontWeight: isActive ? 600 : 400,
-                    cursor: locked ? 'not-allowed' : 'pointer',
-                    opacity: locked ? 0.65 : 1,
-                  }
+          <div className="lp-side-body">
+            {(course.sections || []).map((sec, si) => (
+              <div key={sec.id} className="lp-sec">
+                <div className="lp-sec-t"><span>{String(si + 1).padStart(2, '0')}</span>{sec.title}</div>
+                {ordered.filter(it => it.sectionId === sec.id).map(it => {
+                  const isTest = it.kind === 'test'
+                  const active = !isTest && String(it.id) === String(lessonId)
+                  const locked = isLocked(it.kind, it.id)
+                  const title = isTest ? it.test.title : it.lesson.title
+                  const cls = `lp-it ${active ? 'on' : ''} ${it.done ? 'done' : ''} ${locked ? 'locked' : ''} ${isTest ? 'test' : ''}`
                   const inner = (
                     <>
-                      <span style={{ width: 26, height: 26, borderRadius: 6,
-                        background: l.is_completed ? 'var(--green-50)' : isActive ? 'var(--green-600)' : locked ? 'var(--bg-soft)' : 'var(--bg-soft)',
-                        color: l.is_completed ? 'var(--green-600)' : isActive ? 'white' : 'var(--text-3)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                      }}>
-                        <Icon name={l.is_completed ? 'check' : locked ? 'lock' : 'play'} size={14} />
+                      <span className="st"><Icon name={it.done ? 'check' : locked ? 'lock' : isTest ? 'fileText' : 'play'} size={13} /></span>
+                      <span className="tx">
+                        {isTest && <em>Test</em>}
+                        {title}
                       </span>
-                      <span style={{ flex: 1, lineHeight: 1.3 }}>{l.title}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{l.duration_minutes} daq</span>
+                      <span className="du">{isTest ? `${it.test.question_count} savol` : `${it.lesson.duration_minutes} daq`}</span>
                     </>
                   )
-                  if (locked) {
-                    return (
-                      <div key={l.id} style={baseStyle}
-                        title="Avval oldingi darslarni va testlarni tugating"
-                        onClick={() => toast.error("Avval oldingi darslarni tugating")}>
-                        {inner}
-                      </div>
-                    )
-                  }
-                  return <Link key={l.id} to={`/learn/${slug}/${l.id}`} style={baseStyle}>{inner}</Link>
-                })}
-                {(s.tests || []).map(t => {
-                  const locked = isLocked('test', t.id)
-                  const passed = t.is_passed
-                  const baseStyle = {
-                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px',
-                    textDecoration: 'none', fontSize: 13,
-                    color: locked ? 'var(--text-4)' : passed ? 'var(--green-700)' : 'var(--blue-600)',
-                    cursor: locked ? 'not-allowed' : 'pointer',
-                    opacity: locked ? 0.65 : 1,
-                  }
-                  const inner = (
-                    <>
-                      <span style={{ width: 26, height: 26, borderRadius: 6,
-                        background: passed ? 'var(--green-50)' : 'var(--blue-50)',
-                        color: passed ? 'var(--green-600)' : 'var(--blue-600)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <Icon name={passed ? 'check' : locked ? 'lock' : 'fileText'} size={14} />
-                      </span>
-                      <span style={{ flex: 1 }}>Test: {t.title}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t.question_count} savol</span>
-                    </>
+                  return locked ? (
+                    <div key={`${it.kind}-${it.id}`} className={cls} title="Avval oldingi dars va testlarni tugating"
+                      onClick={() => toast.error('Avval oldingi dars va testlarni tugating')}>{inner}</div>
+                  ) : (
+                    <Link key={`${it.kind}-${it.id}`} className={cls}
+                      to={isTest ? `/learn/${slug}/test/${it.id}` : `/learn/${slug}/${it.id}`}>{inner}</Link>
                   )
-                  if (locked) {
-                    return <div key={`t-${t.id}`} style={baseStyle}
-                      onClick={() => toast.error("Avval oldingi darslarni tugating")}>{inner}</div>
-                  }
-                  return <Link key={`t-${t.id}`} to={`/learn/${slug}/test/${t.id}`} style={baseStyle}>{inner}</Link>
                 })}
               </div>
             ))}
@@ -384,31 +266,27 @@ export default function LessonPlayer() {
         </aside>
       </div>
 
-      {/* Dars tugagach: keyingi dars/testga o'tishni so'rovchi modal */}
+      {/* After finishing a lesson: ask before moving on */}
       {nextPrompt && (
-        <div className="lp-modal-back" onClick={() => setNextPrompt(null)}>
-          <div className="lp-modal" onClick={e => e.stopPropagation()}>
-            <div className="lp-modal-icon"><Icon name={nextPrompt.preview ? 'arrowR' : 'check'} size={28} /></div>
-            <h3 style={{ fontSize: 20, marginBottom: 8, textAlign: 'center' }}>
-              {nextPrompt.preview ? "Keyingisiga o'tish" : 'Dars tugatildi!'}
-            </h3>
-            <p className="text-sm text-muted" style={{ lineHeight: 1.65, textAlign: 'center' }}>
-              {nextPrompt.kind === 'test' ? (
-                <>Keyingi bosqich — <b>test</b>:<br />«{nextPrompt.title}»<br />Hozir topshirasizmi?</>
-              ) : (
-                <>Keyingi dars:<br />«{nextPrompt.title}»<br />Hozir o'tasizmi?</>
-              )}
+        <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setNextPrompt(null) }}>
+          <div className="modal" style={{ maxWidth: 440, textAlign: 'center' }}>
+            <div className="lp-done-ic">{nextPrompt.preview ? '🧭' : '🎉'}</div>
+            <h3 style={{ fontSize: 24, margin: '14px 0 8px' }}>{nextPrompt.preview ? "Keyingisiga o'tish" : 'Dars tugatildi!'}</h3>
+            <p className="text-sm text-muted" style={{ lineHeight: 1.6 }}>
+              {nextPrompt.kind === 'test' ? 'Keyingi bekat — test:' : 'Keyingi bekat — dars:'}
             </p>
+            <div className="lp-nextcard">
+              <span className={`st ${nextPrompt.kind}`}><Icon name={nextPrompt.kind === 'test' ? 'fileText' : 'play'} size={15} /></span>
+              <b>{nextPrompt.title}</b>
+            </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setNextPrompt(null)}>
-                Yo'q, qolaman
-              </button>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setNextPrompt(null)}>Shu yerda qolaman</button>
               <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => {
                 const p = nextPrompt
                 setNextPrompt(null)
                 navigate(p.kind === 'test' ? `/learn/${slug}/test/${p.id}` : `/learn/${slug}/${p.id}`)
               }}>
-                {nextPrompt.kind === 'test' ? "Ha, testga o'tish" : 'Ha, keyingi dars'} <Icon name="arrowR" size={14} />
+                {nextPrompt.kind === 'test' ? "Testga o'tish" : 'Keyingi dars'} <Icon name="arrowR" size={15} />
               </button>
             </div>
           </div>
@@ -418,9 +296,119 @@ export default function LessonPlayer() {
   )
 }
 
+const css = `
+  .lp { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: 22px; padding: 22px 24px 60px; max-width: 1480px; margin: 0 auto; align-items: start; }
+  .lp-main { min-width: 0; }
+
+  .lp-stage { aspect-ratio: 16/9; position: relative; background: #0B1220; border: 2px solid var(--line); border-radius: 26px; box-shadow: var(--hard); overflow: hidden; }
+  .lp-stage iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .lp-novideo { height: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; color: #B7C0D8; background-image: var(--topo); background-size: 520px 360px; text-align: center; padding: 20px; }
+  .lp-novideo .ic { width: 76px; height: 76px; border-radius: 24px; background: var(--sun); color: #14213D; border: 2px solid #14213D; display: flex; align-items: center; justify-content: center; transform: rotate(-6deg); margin-bottom: 8px; }
+  .lp-novideo b { color: #fff; font-family: var(--font-display); font-size: 20px; letter-spacing: -.02em; }
+  .lp-novideo span { font-size: 13.5px; }
+
+  .lp-player { width: 100%; height: 100%; position: relative; }
+  .lp-player video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .lp-player video::-webkit-media-controls-download-button,
+  .lp-player video::-internal-media-controls-download-button { display: none !important; }
+  .lp-play { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; gap: 18px; align-items: center; justify-content: center; background: rgba(11, 18, 32, .55); }
+  .lp-play .pb { width: 92px; height: 92px; border-radius: 28px; background: var(--sun); color: #14213D; border: 2px solid #14213D; box-shadow: 6px 6px 0 #14213D; display: flex; align-items: center; justify-content: center; transition: transform .15s ease, box-shadow .15s ease; }
+  .lp-play:hover .pb { transform: translate(-3px, -3px) rotate(-4deg); box-shadow: 9px 9px 0 #14213D; }
+  .lp-play .hint { color: #fff; font-size: 14px; font-weight: 700; max-width: 80%; text-align: center; }
+  .lp-speed { position: absolute; top: 14px; left: 14px; z-index: 4; display: inline-flex; gap: 3px; padding: 4px; background: #14213D; border: 1.5px solid rgba(255,255,255,.25); border-radius: 12px; opacity: 0; transition: opacity .2s ease; }
+  .lp-player:hover .lp-speed, .lp-speed.show { opacity: 1; }
+  .lp-speed button { padding: 4px 9px; border-radius: 8px; color: #B7C0D8; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; }
+  .lp-speed button:hover { color: #fff; }
+  .lp-speed button.on { background: var(--sun); color: #14213D; }
+  .lp-mark { position: absolute; top: 14px; right: 14px; z-index: 4; padding: 5px 10px; border-radius: 10px; background: #14213D; color: #fff; border: 1.5px solid rgba(255,255,255,.25); font-family: var(--font-display); font-weight: 800; font-size: 12px; letter-spacing: -.02em; pointer-events: none; }
+
+  .lp-head { padding: 24px 4px 4px; }
+  .lp-crumbs { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .lp-crumbs a { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 700; color: var(--text-2); }
+  .lp-crumbs a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+  .lp-crumbs .coord { text-transform: uppercase; }
+  .lp-head h1 { font-size: 38px; line-height: 1.05; }
+  .lp-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .lp-meta .chip { height: 30px; font-size: 12.5px; padding: 0 11px; }
+
+  .lp-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 22px; margin-top: 20px; overflow: hidden; }
+  .lp-tabs { display: flex; gap: 4px; padding: 10px; border-bottom: 1.5px dashed var(--border); overflow-x: auto; }
+  .lp-tabs button { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; border-radius: 12px; font-size: 14px; font-weight: 700; color: var(--text-3); white-space: nowrap; }
+  .lp-tabs button:hover { background: var(--bg-soft); color: var(--text); }
+  .lp-tabs button.on { background: var(--ink); color: #fff; }
+  html[data-theme="dark"] .lp-tabs button.on { background: var(--sun); color: #14213D; }
+  .lp-tabs .n { font-family: var(--font-mono); font-size: 10.5px; padding: 0 6px; border-radius: 99px; background: var(--sun); color: #14213D; }
+  .lp-pane { padding: 22px 24px 24px; }
+  .lp-text { color: var(--text-2); font-size: 15.5px; line-height: 1.75; }
+  .lp-none { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px; text-align: center; color: var(--text-3); font-size: 14px; }
+  .lp-none .ic { width: 46px; height: 46px; border-radius: 15px; background: var(--sun-soft); color: var(--text); border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; transform: rotate(-5deg); margin-bottom: 6px; }
+
+  .lp-write { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 20px; }
+  .lp-write .avatar { width: 40px; height: 40px; border-radius: 13px; }
+  .lp-write .box { flex: 1; min-width: 0; }
+  .lp-write .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; }
+  .lp-cm { display: flex; gap: 12px; padding: 14px 0; border-top: 1.5px dashed var(--border-2); }
+  .lp-cm .avatar { width: 38px; height: 38px; border-radius: 12px; }
+  .lp-cm .bd { flex: 1; min-width: 0; }
+  .lp-cm .nm { font-weight: 750; font-size: 14px; }
+  .lp-cm .tm { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); margin-left: 8px; }
+  .lp-cm p { font-size: 14.5px; color: var(--text-2); line-height: 1.6; margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+
+  .lp-files { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lp-file { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; border: 1.5px solid var(--border); background: var(--white); transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease; }
+  .lp-file:hover { border-color: var(--line); box-shadow: var(--hard-sm); transform: translate(-2px, -2px); }
+  .lp-file .fi { width: 42px; height: 42px; border-radius: 13px; background: var(--sea-soft); color: var(--blue-600); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transform: rotate(-4deg); }
+  .lp-file .fn { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lp-file .fs { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .lp-next { display: flex; align-items: center; gap: 16px; margin-top: 20px; padding: 14px 16px; background: var(--white); border: 2px solid var(--line); border-radius: 22px; box-shadow: var(--hard-sm); }
+  .lp-next .nx { flex: 1; min-width: 0; text-align: center; }
+  .lp-next .lb { display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
+  .lp-next .nx b { display: block; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .lp-side { position: sticky; top: 92px; max-height: calc(100vh - 108px); display: flex; flex-direction: column; background: var(--white); border: 1.5px solid var(--border); border-radius: 24px; overflow: hidden; }
+  .lp-side-head { padding: 18px 18px 22px; border-bottom: 1.5px dashed var(--border); flex-shrink: 0; }
+  .lp-side-head .t { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  .lp-side-head h4 { font-size: 19px; }
+  .lp-side-head .t span { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text-3); }
+  .lp-route { position: relative; height: 10px; border-radius: 99px; background: var(--bg-soft); border: 1.5px solid var(--line); }
+  .lp-route i { display: block; height: 100%; border-radius: 99px; background: var(--green-600); transition: width .5s ease; }
+  .lp-route b { position: absolute; top: 14px; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+  .lp-side-body { overflow-y: auto; padding: 10px 10px 14px; }
+  .lp-sec { margin-bottom: 8px; }
+  .lp-sec-t { display: flex; align-items: center; gap: 8px; padding: 10px 8px 6px; font-family: var(--font-display); font-weight: 750; font-size: 14px; letter-spacing: -.01em; }
+  .lp-sec-t span { font-family: var(--font-mono); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 7px; background: var(--bg-soft); color: var(--text-3); }
+  .lp-it { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 14px; border: 1.5px solid transparent; font-size: 13.5px; font-weight: 600; color: var(--text); cursor: pointer; transition: background .12s ease, border-color .12s ease; }
+  .lp-it:hover { background: var(--bg-soft); }
+  .lp-it.on { background: var(--sun-soft); border-color: var(--line); font-weight: 750; }
+  .lp-it.locked { color: var(--text-4); cursor: not-allowed; }
+  .lp-it .st { width: 28px; height: 28px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--sea-soft); color: var(--blue-600); }
+  .lp-it.test .st { background: var(--violet-soft); color: var(--violet); }
+  .lp-it.done .st { background: var(--green-600); color: #fff; }
+  .lp-it.locked .st { background: var(--bg-soft); color: var(--text-4); }
+  .lp-it .tx { flex: 1; min-width: 0; line-height: 1.3; }
+  .lp-it .tx em { display: block; font-style: normal; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--violet); }
+  .lp-it .du { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); flex-shrink: 0; }
+
+  .lp-done-ic { font-size: 52px; line-height: 1; }
+  .lp-nextcard { display: flex; align-items: center; gap: 12px; text-align: left; margin-top: 12px; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 16px; background: var(--sun-soft); }
+  .lp-nextcard .st { width: 34px; height: 34px; border-radius: 11px; background: var(--white); border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .lp-nextcard b { font-size: 14.5px; line-height: 1.3; }
+
+  @media (max-width: 1100px) {
+    .lp { grid-template-columns: 1fr; padding: 14px 14px 48px; }
+    .lp-side { position: static; max-height: 460px; }
+    .lp-head h1 { font-size: 28px; }
+  }
+  @media (max-width: 640px) {
+    .lp-stage { border-radius: 18px; } .lp-files { grid-template-columns: 1fr; } .lp-pane { padding: 16px; }
+    .lp-next { flex-wrap: wrap; } .lp-next .nx { order: -1; flex-basis: 100%; text-align: left; } .lp-next .btn { flex: 1; }
+  }
+`
+
 
 // ============================================================
-// Uploaded-video player: big play overlay + speed pills + resume
+// Uploaded-video player: play sticker + speed pills + resume
 // ============================================================
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2]
 
@@ -438,14 +426,12 @@ function UploadedPlayer({ lesson }) {
   }
 
   return (
-    <div className="upload-player" onContextMenu={e => e.preventDefault()}>
-      <span className="upload-watermark"><span className="dot" /> IONEDU</span>
+    <div className="lp-player" onContextMenu={e => e.preventDefault()}>
+      <span className="lp-mark">ionedu</span>
 
-      <div className={`vp-speed ${!playing && started ? 'show' : ''}`}>
+      <div className={`lp-speed ${!playing && started ? 'show' : ''}`}>
         {SPEEDS.map(s => (
-          <button key={s} className={speed === s ? 'on' : ''} onClick={() => setRate(s)}>
-            {s}×
-          </button>
+          <button key={s} className={speed === s ? 'on' : ''} onClick={() => setRate(s)}>{s}×</button>
         ))}
       </div>
 
@@ -476,8 +462,8 @@ function UploadedPlayer({ lesson }) {
       />
 
       {!started && (
-        <button className="vp-overlay" onClick={() => ref.current?.play()} aria-label="Videoni boshlash">
-          <span className="btn-ring"><Icon name="play" size={34} fill /></span>
+        <button className="lp-play" onClick={() => ref.current?.play()} aria-label="Videoni boshlash">
+          <span className="pb"><Icon name="play" size={36} fill /></span>
           <span className="hint">{lesson.title} · {lesson.duration_minutes} daqiqa</span>
         </button>
       )}
@@ -487,141 +473,127 @@ function UploadedPlayer({ lesson }) {
 
 
 // ============================================================
-// Tabs: Tavsif / Muhokama / Resurslar
+// Tabs: Dars matni / Muhokama / Materiallar
 // ============================================================
-function LessonTabs({ lesson, prev, isLast, slug, navigate, onComplete, onPreviewNext, completePending, previewMode }) {
+function LessonTabs({ lesson }) {
   const [tab, setTab] = useState('desc')
+
+  const { data: comments = [] } = useQuery({
+    queryKey: ['lesson-comments', lesson.id],
+    queryFn: () => api.get(`/lessons/${lesson.id}/comments/`).then(r => r.data.results || r.data),
+  })
+  const { data: materials = [] } = useQuery({
+    queryKey: ['lesson-materials', lesson.id],
+    queryFn: () => api.get(`/lessons/${lesson.id}/materials/`).then(r => r.data.results || r.data),
+  })
+
+  const TABS = [
+    ['desc', 'Dars matni', 'book', 0],
+    ['disc', 'Muhokama', 'comment', comments.length],
+    ['res', 'Materiallar', 'folder', materials.length],
+  ]
+
   return (
-    <>
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', padding: '0 28px' }}>
-        {[['desc', 'Tavsif'], ['disc', 'Muhokama'], ['res', 'Resurslar']].map(([k, n]) => (
-          <button key={k} onClick={() => setTab(k)}
-            style={{
-              padding: '14px 18px', fontSize: 14, fontWeight: 500,
-              color: tab === k ? 'var(--green-600)' : 'var(--text-3)',
-              borderBottom: tab === k ? '2px solid var(--green-600)' : '2px solid transparent',
-              marginBottom: -1,
-            }}>{n}</button>
+    <div className="lp-card">
+      <div className="lp-tabs" role="tablist">
+        {TABS.map(([k, label, icon, n]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+            <Icon name={icon} size={15} /> {label} {n > 0 && <span className="n">{n}</span>}
+          </button>
         ))}
       </div>
 
-      <div style={{ padding: 28 }}>
+      <div className="lp-pane">
         {tab === 'desc' && (
-          <div style={{ color: 'var(--text-2)', fontSize: 15, lineHeight: 1.7 }}>
-            {!lesson.description ? (
-              <p>Tavsif kiritilmagan.</p>
-            ) : isHtmlContent(lesson.description) ? (
-              <div className="rte-content" dangerouslySetInnerHTML={{ __html: sanitizeHtml(lesson.description) }} />
-            ) : (
-              <p style={{ whiteSpace: 'pre-line' }}>{lesson.description}</p>
-            )}
-          </div>
-        )}
-        {tab === 'disc' && <DiscussionTab lessonId={lesson.id} />}
-        {tab === 'res' && <ResourcesTab lessonId={lesson.id} />}
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border-2)' }}>
-          <button className="btn btn-secondary" disabled={!prev} onClick={() => prev && navigate(`/learn/${slug}/${prev.id}`)}>
-            <Icon name="arrowL" size={14} /> Oldingi
-          </button>
-          {previewMode ? (
-            <button className="btn btn-primary" disabled={isLast} onClick={onPreviewNext}>
-              {isLast ? "Oxirgi bo'lim" : 'Keyingi'} <Icon name="arrowR" size={14} />
-            </button>
+          !lesson.description ? (
+            <div className="lp-none"><span className="ic"><Icon name="book" size={20} /></span>Bu dars uchun matn yozilmagan.</div>
+          ) : isHtmlContent(lesson.description) ? (
+            <div className="rte-content lp-text" dangerouslySetInnerHTML={{ __html: sanitizeHtml(lesson.description) }} />
           ) : (
-            <button className="btn btn-primary" onClick={onComplete} disabled={completePending}>
-              {completePending ? 'Saqlanmoqda…' : isLast ? 'Kursni tugatish' : 'Darsni tugatdim'} <Icon name="check" size={14} />
-            </button>
-          )}
-        </div>
+            <p className="lp-text" style={{ whiteSpace: 'pre-line' }}>{lesson.description}</p>
+          )
+        )}
+        {tab === 'disc' && <DiscussionTab lessonId={lesson.id} comments={comments} />}
+        {tab === 'res' && <ResourcesTab items={materials} />}
       </div>
-    </>
+    </div>
   )
 }
 
-function DiscussionTab({ lessonId }) {
+function DiscussionTab({ lessonId, comments }) {
   const qc = useQueryClient()
   const { user } = useAuth()
   const [text, setText] = useState('')
-
-  const { data: comments = [] } = useQuery({
-    queryKey: ['lesson-comments', lessonId],
-    queryFn: () => api.get(`/lessons/${lessonId}/comments/`).then(r => r.data.results || r.data),
-  })
+  const [toDelete, setToDelete] = useState(null)
 
   const post = useMutation({
-    mutationFn: () => api.post(`/lessons/${lessonId}/comments/`, { text }),
-    onSuccess: () => { setText(''); qc.invalidateQueries(['lesson-comments', lessonId]) },
-    onError: () => toast.error("Yuborib bo'lmadi"),
+    mutationFn: () => api.post(`/lessons/${lessonId}/comments/`, { text: text.trim() }),
+    onSuccess: () => { setText(''); qc.invalidateQueries({ queryKey: ['lesson-comments', lessonId] }) },
+    onError: () => toast.error("Izohni yuborib bo'lmadi"),
   })
 
   const del = useMutation({
     mutationFn: (id) => api.delete(`/comments/${id}/`),
-    onSuccess: () => qc.invalidateQueries(['lesson-comments', lessonId]),
+    onSuccess: () => { setToDelete(null); qc.invalidateQueries({ queryKey: ['lesson-comments', lessonId] }) },
+    onError: () => toast.error("O'chirib bo'lmadi"),
   })
 
   return (
     <div>
-      <div className="card" style={{ background: 'var(--bg-soft)', marginBottom: 16 }}>
-        <textarea className="textarea" rows={3} value={text} onChange={e => setText(e.target.value)}
-          placeholder="Savolingiz yoki fikringizni yozing…" />
-        <button className="btn btn-primary btn-sm mt-3" disabled={!text.trim() || post.isPending} onClick={() => post.mutate()}>
-          {post.isPending ? 'Yuborilmoqda…' : 'Izoh qoldirish'}
-        </button>
-      </div>
-      {comments.length === 0 ? (
-        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)' }}>Hozircha izohlar yo'q</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {comments.map(c => (
-            <div key={c.id} className="card">
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8 }}>
-                <div className="avatar avatar-blue">{c.user?.initials}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{c.user?.display_name}</div>
-                  <div className="text-xs text-muted">{new Date(c.created_at).toLocaleString('uz-UZ')}</div>
-                </div>
-                {(user?.id === c.user?.id || user?.role === 'admin') && (
-                  <button className="icon-btn" title="O'chirish" onClick={() => { if (confirm("Izohni o'chirish?")) del.mutate(c.id) }}>
-                    <Icon name="trash" size={14} />
-                  </button>
-                )}
-              </div>
-              <p className="text-sm" style={{ color: 'var(--text-2)' }}>{c.text}</p>
-            </div>
-          ))}
+      <div className="lp-write">
+        <span className="avatar">{user?.avatar ? <img src={absUrl(user.avatar)} alt="" /> : user?.initials}</span>
+        <div className="box">
+          <textarea className="textarea" rows={2} value={text} onChange={e => setText(e.target.value)} maxLength={2000}
+            placeholder="Savolingiz yoki fikringizni yozing…"
+            onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && text.trim()) post.mutate() }} />
+          <div className="row">
+            <span className="text-xs text-muted">Ctrl+Enter — yuborish</span>
+            <button className="btn btn-primary btn-sm" disabled={!text.trim() || post.isPending} onClick={() => post.mutate()}>
+              {post.isPending ? 'Yuborilmoqda…' : <>Yuborish <Icon name="arrowR" size={13} /></>}
+            </button>
+          </div>
         </div>
+      </div>
+
+      {comments.length === 0 ? (
+        <div className="lp-none"><span className="ic"><Icon name="comment" size={20} /></span>Hozircha izoh yo'q — birinchi bo'lib savol bering.</div>
+      ) : comments.map(c => (
+        <div key={c.id} className="lp-cm">
+          <span className="avatar avatar-blue">{c.user?.avatar ? <img src={absUrl(c.user.avatar)} alt="" /> : c.user?.initials}</span>
+          <div className="bd">
+            <span className="nm">{c.user?.display_name}</span>
+            {c.user?.role === 'teacher' && <span className="badge badge-amber" style={{ marginLeft: 8 }}>O'qituvchi</span>}
+            <span className="tm">{new Date(c.created_at).toLocaleString('uz-UZ', { dateStyle: 'short', timeStyle: 'short' })}</span>
+            <p>{c.text}</p>
+          </div>
+          {(user?.id === c.user?.id || user?.role === 'admin') && (
+            <button className="icon-btn danger" title="O'chirish" onClick={() => setToDelete(c)}><Icon name="trash" size={14} /></button>
+          )}
+        </div>
+      ))}
+
+      {toDelete && (
+        <Confirm danger title="Izohni o'chirish" text="Bu izoh butunlay o'chiriladi." confirmLabel="O'chirish"
+          busy={del.isPending} onConfirm={() => del.mutate(toDelete.id)} onClose={() => setToDelete(null)} />
       )}
     </div>
   )
 }
 
-function ResourcesTab({ lessonId }) {
-  const { data: items = [] } = useQuery({
-    queryKey: ['lesson-materials', lessonId],
-    queryFn: () => api.get(`/lessons/${lessonId}/materials/`).then(r => r.data.results || r.data),
-  })
-
+function ResourcesTab({ items }) {
   if (items.length === 0) {
-    return (
-      <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)' }}>
-        Ushbu darsga biriktirilgan resurslar yo'q
-      </div>
-    )
+    return <div className="lp-none"><span className="ic"><Icon name="folder" size={20} /></span>Bu darsga material biriktirilmagan.</div>
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="lp-files">
       {items.map(m => (
-        <a key={m.id} href={absUrl(m.file)} target="_blank" rel="noreferrer"
-          className="card card-hover" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, textDecoration: 'none' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--green-50)', color: 'var(--green-600)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="fileText" size={18} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{m.title}</div>
-            <div className="text-xs text-muted">{m.file.split('/').pop()}</div>
-          </div>
-          <Icon name="download" size={16} style={{ color: 'var(--green-600)' }} />
+        <a key={m.id} href={absUrl(m.file)} target="_blank" rel="noreferrer" className="lp-file">
+          <span className="fi"><Icon name="fileText" size={19} /></span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span className="fn" style={{ display: 'block' }}>{m.title}</span>
+            <span className="fs" style={{ display: 'block' }}>{m.file.split('/').pop()}</span>
+          </span>
+          <Icon name="download" size={16} />
         </a>
       ))}
     </div>

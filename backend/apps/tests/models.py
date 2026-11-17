@@ -15,7 +15,24 @@ class Test(models.Model):
     description = models.TextField(blank=True)
     time_limit_minutes = models.PositiveIntegerField(null=True, blank=True)
     pass_percent = models.PositiveSmallIntegerField(default=60)
+    # Position inside the section — shares one sequence with the section's lessons,
+    # so a test can sit anywhere between lessons.
+    order = models.PositiveIntegerField(default=0)
+    # Delivery settings
+    shuffle_questions = models.BooleanField(default=False)
+    shuffle_options = models.BooleanField(default=False)
+    # Draw only N random questions per attempt (question bank). Null = all.
+    question_limit = models.PositiveIntegerField(null=True, blank=True)
+    # Null = unlimited attempts.
+    max_attempts = models.PositiveIntegerField(null=True, blank=True)
+    # Reveal correct answers + explanations on the result page.
+    show_answers = models.BooleanField(default=True)
+    # Anti-cheat: leaving the tab counts as a violation; after
+    # `focus_loss_limit` violations the attempt is submitted automatically.
+    strict_mode = models.BooleanField(default=False)
+    focus_loss_limit = models.PositiveSmallIntegerField(default=3)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -26,6 +43,14 @@ class Test(models.Model):
     @property
     def question_count(self):
         return self.questions.count()
+
+    @property
+    def take_count(self):
+        """How many questions a student actually gets per attempt."""
+        n = self.questions.count()
+        if self.question_limit:
+            return min(n, self.question_limit)
+        return n
 
     @property
     def is_standalone(self):
@@ -52,6 +77,10 @@ class Question(models.Model):
     text = models.TextField()
     question_type = models.CharField(max_length=12, choices=TYPE_CHOICES, default=TYPE_SINGLE)
     order = models.PositiveIntegerField(default=0)
+    points = models.PositiveSmallIntegerField(default=1)
+    # Shown to the student in the review after the attempt.
+    explanation = models.TextField(blank=True, default='')
+    image = models.ImageField(upload_to='questions/', null=True, blank=True)
 
     class Meta:
         ordering = ['order', 'id']
@@ -91,9 +120,22 @@ class TestAttempt(models.Model):
     finish_reason = models.CharField(max_length=12, choices=FINISH_CHOICES, blank=True, default='')
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    earned_points = models.FloatField(default=0)
+    max_points = models.FloatField(default=0)
+    # Question ids served in this attempt, in display order (shuffle / question bank).
+    question_ids = models.JSONField(default=list, blank=True)
+    # Autosaved in-progress state: {"answers": [...], "flags": [...], "index": n}
+    draft = models.JSONField(default=dict, blank=True)
+    focus_losses = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         ordering = ['-started_at']
+
+    @property
+    def duration_seconds(self):
+        if not self.finished_at:
+            return None
+        return max(int((self.finished_at - self.started_at).total_seconds()), 0)
 
 
 class AttemptAnswer(models.Model):
@@ -105,3 +147,4 @@ class AttemptAnswer(models.Model):
     # Written-answer questions store the raw student input.
     text_answer = models.CharField(max_length=500, blank=True, default='')
     is_correct = models.BooleanField(default=False)
+    points_earned = models.FloatField(default=0)

@@ -31,6 +31,20 @@ npm run dev
 
 Frontend serves at `http://localhost:5173/` (or 5174 if 5173 is busy — both are allowed by CORS in dev).
 
+## Auth: email verification and Google sign-in
+
+- **Email verification.** Registration creates an unverified account and emails a 6-digit code
+  (`POST /api/auth/register/` -> `POST /api/auth/verify-email/`). Tokens are issued only after the code is
+  confirmed. In dev (no `EMAIL_HOST` in `backend/.env`) mail goes to the runserver console and the code is
+  also shown on the verification screen; set `EMAIL_HOST*` for real SMTP in production.
+- **Google sign-in.** Create an OAuth client ID (type "Web application") at console.cloud.google.com, add
+  your site origin (e.g. `http://localhost:5174`) to "Authorized JavaScript origins", and put the ID into
+  `GOOGLE_CLIENT_ID` in `backend/.env`. The frontend reads it from `/api/auth/config/`.
+
+## Design system
+
+The UI follows the "Atlas" design system - see `frontend/DESIGN.md`.
+
 ### Seed accounts (logging in by email)
 
 | Role     | Email                | Password    |

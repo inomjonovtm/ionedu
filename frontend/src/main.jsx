@@ -23,15 +23,16 @@ createRoot(document.getElementById('root')).render(
           toastOptions={{
             duration: 3000,
             style: {
-              fontFamily: "'Geist', sans-serif",
-              fontSize: 13.5,
+              fontFamily: 'var(--font-body)',
+              fontSize: 14,
+              fontWeight: 600,
               color: 'var(--text)',
               background: 'var(--white)',
-              border: '1px solid var(--border)',
-              borderRadius: 14,
-              boxShadow: 'var(--shadow-pop)',
+              border: '2px solid var(--line)',
+              borderRadius: 16,
+              boxShadow: 'var(--hard)',
             },
-            success: { iconTheme: { primary: '#0E8345', secondary: '#fff' } },
+            success: { iconTheme: { primary: '#129B62', secondary: '#fff' } },
           }}
         />
       </BrowserRouter>

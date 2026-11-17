@@ -12,7 +12,7 @@ import Confirm from '../components/Confirm'
 import { useAuth } from '../store/auth'
 
 const styles = `
-  .pp-page { padding: 34px 0 90px; }
+  .pp-page { padding-top: 34px; padding-bottom: 90px; }
   .pp-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 36px; align-items: start; }
   .pp-side { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 
@@ -164,7 +164,7 @@ const styles = `
     .pp-sec { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   }
   @media (max-width: 768px) {
-    .pp-page { padding: 20px 0 64px; }
+    .pp-page { padding-top: 20px; padding-bottom: 64px; }
     .pp-layout { grid-template-columns: minmax(0, 1fr); }
     .pp-side { position: static; }
     .pp-nav { flex-direction: row; overflow-x: auto; gap: 8px; padding: 2px 2px 6px; scrollbar-width: none; }

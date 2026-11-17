@@ -6,7 +6,7 @@ import Layout from '../components/Layout'
 import Icon from '../components/Icon'
 
 const css = `
-  .vc-page { padding: 30px 0 90px; }
+  .vc-page { padding-top: 30px; padding-bottom: 90px; }
   .vc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: start; margin-top: 26px; }
   .vc-intro h1 { font-family: var(--font-display); font-size: 56px; font-weight: 800; letter-spacing: -.045em; line-height: 1; margin-top: 16px; }
   .vc-intro > p { font-size: 16px; color: var(--text-3); line-height: 1.6; margin-top: 18px; max-width: 460px; }
@@ -55,7 +55,7 @@ const css = `
     .vc-steps { margin-top: 22px; }
   }
   @media (max-width: 768px) {
-    .vc-page { padding: 18px 0 64px; }
+    .vc-page { padding-top: 18px; padding-bottom: 64px; }
     .vc-intro h1 { font-size: 34px; }
     .vc-check { box-shadow: var(--hard); }
     .vc-check-body { padding: 18px 16px; }

@@ -34,7 +34,9 @@ export default function Footer() {
     queryFn: () => api.get('/stats/').then(r => r.data).catch(() => ({})),
   })
 
-  const siteName = s.site_name || 'Ionedu'
+  const rawName = (s.site_name || 'Ionedu').trim()
+  // The brand is written "Ionedu" everywhere, whatever casing was saved in settings.
+  const siteName = rawName.toLowerCase() === 'ionedu' ? 'Ionedu' : rawName
 
   return (
     <footer className="footer">

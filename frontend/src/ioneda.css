@@ -104,7 +104,8 @@ h1, h2, h3, h4, h5 {
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.1;
-  color: var(--text);
+  /* inherit, so a heading on a coloured tile or ink panel follows its container */
+  color: inherit;
 }
 h1 { font-weight: 800; letter-spacing: -0.04em; }
 
@@ -582,6 +583,7 @@ a.row-line:hover, .row-line.hoverable:hover { background: var(--paper); }
   .main { padding: 24px 16px; }
   .section-title { font-size: 28px; }
   .footer-bottom { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .footer { margin-top: 56px; padding: 48px 0 28px; }
 }
 
 .auth-divider { display: flex; align-items: center; gap: 14px; margin: 20px 0; color: var(--text-3); font-size: 12px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .1em; }

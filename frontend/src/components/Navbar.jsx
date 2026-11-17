@@ -146,6 +146,9 @@ const navCss = `
   .nv-cta-ghost:hover { background: var(--bg-soft); color: var(--text); }
 
   .nv-burger { display: none; }
+  .nv-start { height: 40px; padding: 0 16px; font-size: 14px; }
+  .nv-bar { min-width: 0; }
+  .nv-logo { min-width: 0; }
 
   @media (max-width: 1120px) { .nv-search-btn span, .nv-search-btn kbd { display: none; } .nv-search-btn { width: 40px; padding: 0; justify-content: center; background: none; } }
   @media (max-width: 980px) {
@@ -157,7 +160,10 @@ const navCss = `
     .nv-bar { height: 58px; border-radius: 18px; padding: 0 8px 0 12px; gap: 6px; }
     .nv-user .nm, .nv-user > svg { display: none; }
     .nv-user { padding: 0 4px; border: none; margin: 0; }
-    .nv-cta-ghost { display: none; }
+    .nv-cta-ghost, .nv-start { display: none; }
+    .nv-actions { gap: 2px; }
+    .nv-icon-btn, .nv-search-btn { width: 38px; height: 38px; }
+    .nv-burger { width: 40px; height: 40px; margin-left: 2px; flex-shrink: 0; }
   }
 
   /* Mobile sheet — a fold-out map */
@@ -377,7 +383,7 @@ export default function Navbar() {
               ) : (
                 <>
                   <Link to="/auth/login" className="nv-cta-ghost">Kirish</Link>
-                  <Link to="/auth/register" className="btn btn-primary btn-sm" style={{ height: 40, padding: '0 16px', fontSize: 14 }}>Boshlash</Link>
+                  <Link to="/auth/register" className="btn btn-primary btn-sm nv-start">Boshlash</Link>
                 </>
               )}
               <button className="nv-burger" onClick={() => setSheetOpen(true)} aria-label="Menyu">

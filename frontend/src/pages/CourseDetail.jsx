@@ -156,7 +156,7 @@ const styles = `
   .cd-inc li { display: flex; align-items: center; gap: 11px; font-size: 14px; font-weight: 600; color: var(--text-2); }
   .cd-inc .i { width: 30px; height: 30px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--white); border: 1.5px solid var(--border); color: var(--text); }
 
-  .cd-missing { padding: 60px 0 40px; }
+  .cd-missing { padding-top: 60px; padding-bottom: 40px; }
 
   @media (max-width: 1024px) {
     .cd-hero { grid-template-columns: minmax(0, 1fr) 220px; padding: 32px 30px 0; gap: 16px 28px; }

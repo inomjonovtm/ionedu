@@ -72,3 +72,10 @@ export const useAuth = create((set, get) => ({
     return data
   },
 }))
+
+// The API client fires this when the refresh token is no longer accepted:
+// drop the user so protected pages send the visitor to the login screen
+// instead of failing every request with a confusing error.
+window.addEventListener('ionedu:session-expired', () => {
+  useAuth.setState({ user: null, access: null, refresh: null })
+})

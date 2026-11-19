@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import api, { absUrl } from '../../api/client'
+import api, { absUrl, apiError } from '../../api/client'
 import Icon from '../Icon'
 import Confirm from '../Confirm'
 import { EmptyState } from '../Dash'
@@ -181,13 +181,7 @@ function parseQuestions(raw) {
   return out
 }
 
-const errMsg = (e, fallback) => {
-  const d = e?.response?.data
-  if (!d) return e?.response ? fallback : "Server bilan aloqa yo'q"
-  if (typeof d === 'string') return fallback
-  const first = d.detail || d.options || d.text || d.title || Object.values(d)[0]
-  return String(Array.isArray(first) ? first[0] : first || fallback)
-}
+const errMsg = apiError
 
 /* ─────────────────────────── Question form ─────────────────────────── */
 

@@ -55,8 +55,15 @@ if command -v systemctl >/dev/null 2>&1; then
     sudo systemctl reload nginx && echo "  nginx yangilandi"
   fi
 fi
+if [ "$restarted" = "0" ] && pgrep -f "gunicorn" >/dev/null 2>&1; then
+  # Not a systemd unit: ask the running gunicorn master to reload its workers.
+  pkill -HUP -f "gunicorn: master" 2>/dev/null || pkill -HUP -f "gunicorn" || true
+  echo "  gunicorn jarayoni qayta yuklandi (HUP)" && restarted=1
+fi
 if [ "$restarted" = "0" ]; then
-  echo "  Xizmat avtomatik topilmadi — gunicorn'ni o'zingiz qayta ishga tushiring"
+  echo "  DIQQAT: backend avtomatik qayta ishga tushmadi!"
+  echo "  Eski kod ishlab tursa, testni boshlash va tartibni saqlash xato beradi."
+  echo "  Gunicorn'ni o'zingiz qayta ishga tushiring"
   echo "  (yoki: IONEDU_SERVICE=<xizmat-nomi> bash deploy.sh)"
 fi
 

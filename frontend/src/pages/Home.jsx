@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import api from '../api/client'
+import api, { absUrl } from '../api/client'
 import Layout from '../components/Layout'
 import CourseCard from '../components/CourseCard'
 import Icon from '../components/Icon'
@@ -183,27 +183,52 @@ const css = `
   .hm-step h3 { font-family: var(--font-display); font-size: 24px; font-weight: 800; letter-spacing: -0.035em; margin: 8px 0 8px; }
   .hm-step p { color: var(--text-3); font-size: 15px; line-height: 1.65; max-width: 300px; font-weight: 500; }
 
-  /* ── Teachers: board ── */
-  .hm-teach { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 48px; align-items: start; }
-  .hm-tside .section-title { margin-top: 16px; }
-  .hm-tside p { color: var(--text-3); font-size: 16px; line-height: 1.65; margin: 16px 0 26px; max-width: 400px; font-weight: 500; }
-  .hm-tlist { background: var(--white); border: 2px solid var(--line); border-radius: var(--r-card); box-shadow: var(--hard); overflow: hidden; }
-  .hm-trow { display: flex; align-items: center; gap: 16px; padding: 18px 22px; transition: background .14s ease; }
-  .hm-trow + .hm-trow { border-top: 1.5px dashed var(--border); }
-  .hm-trow:hover { background: var(--bg-soft); }
-  .hm-trow .rk { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text-4); width: 22px; flex-shrink: 0; }
-  .hm-trow .av {
-    width: 52px; height: 52px; border-radius: 16px; border: 2px solid var(--line); flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center; color: #14213D;
-    font-family: var(--font-display); font-weight: 800; font-size: 17px;
+  /* ── Teachers: portrait gallery ── */
+  .hm-thead { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 34px; }
+  .hm-thead .section-title { margin-top: 16px; }
+  .hm-thead p { color: var(--text-3); font-size: 16px; line-height: 1.6; margin-top: 12px; max-width: 520px; font-weight: 500; }
+  .hm-tgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+  .hm-tcard {
+    display: flex; flex-direction: column; background: var(--white); color: var(--text);
+    border: 2px solid var(--line); border-radius: 26px; overflow: hidden;
+    transition: transform .16s ease, box-shadow .16s ease;
   }
-  .hm-trow .who { min-width: 0; flex: 1; }
-  .hm-trow .who b { display: block; font-family: var(--font-display); font-size: 17.5px; font-weight: 700; letter-spacing: -.025em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hm-trow .who span { display: block; font-size: 13.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-  .hm-trow .meta { display: flex; gap: 18px; flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; color: var(--text-3); text-transform: uppercase; text-align: right; }
-  .hm-trow .meta b { display: block; font-size: 15px; color: var(--text); letter-spacing: 0; }
-  .hm-trow .arr { color: var(--text-4); flex-shrink: 0; transition: transform .14s ease, color .14s ease; }
-  .hm-trow:hover .arr { transform: translateX(3px); color: var(--text); }
+  .hm-tcard:hover { transform: translate(-4px, -4px); box-shadow: var(--hard-lg); }
+  .hm-tcard:nth-child(even) { margin-top: 28px; }
+  .hm-tphoto { position: relative; aspect-ratio: 4 / 5; overflow: hidden; border-bottom: 2px solid var(--line); }
+  .hm-tphoto img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .35s ease; }
+  .hm-tcard:hover .hm-tphoto img { transform: scale(1.05); }
+  .hm-tphoto .ini {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background-image: var(--topo); background-size: 360px 250px; color: #14213D;
+    font-family: var(--font-display); font-weight: 800; font-size: 84px; letter-spacing: -.05em;
+  }
+  .hm-tphoto .rate {
+    position: absolute; top: 12px; right: 12px; display: inline-flex; align-items: center; gap: 5px;
+    height: 30px; padding: 0 10px; border-radius: 10px; background: var(--sun); color: #14213D;
+    border: 2px solid #14213D; font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; transform: rotate(4deg);
+  }
+  .hm-tphoto .no {
+    position: absolute; left: 12px; bottom: 12px; padding: 3px 9px; border-radius: 8px;
+    background: #14213D; color: #fff; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+  }
+  .hm-tbody { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .hm-tbody b { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15; }
+  .hm-tbody .sp { font-size: 13.5px; color: var(--text-3); font-weight: 500; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hm-tbody .ft { display: flex; align-items: center; gap: 14px; margin-top: auto; padding-top: 12px; border-top: 1.5px dashed var(--border); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+  .hm-tbody .ft i { font-style: normal; font-weight: 700; color: var(--text); font-size: 13px; letter-spacing: 0; margin-right: 4px; }
+  .hm-tbody .ft svg { margin-left: auto; color: var(--text); }
+  @media (max-width: 1024px) {
+    .hm-tgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hm-tcard:nth-child(even) { margin-top: 0; }
+  }
+  @media (max-width: 560px) {
+    .hm-tgrid { gap: 12px; }
+    .hm-tphoto .ini { font-size: 56px; }
+    .hm-tbody { padding: 12px 12px 14px; } .hm-tbody b { font-size: 16.5px; } .hm-tbody .sp { font-size: 12.5px; }
+    .hm-tbody .ft { gap: 8px; font-size: 9.5px; } .hm-tbody .ft i { font-size: 12px; }
+    .hm-tbody .ft svg { display: none; }
+  }
 
   /* ── Final CTA ── */
   .hm-cta-sec { padding: 96px 0 104px; }
@@ -235,7 +260,7 @@ const css = `
     .hm-stats { grid-template-columns: repeat(4, 1fr); }
     .hm-stats .live { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; padding: 12px 22px; }
     .hm-stat:nth-child(2) { border-left: none; }
-    .hm-courses, .hm-teach { grid-template-columns: 1fr; gap: 32px; }
+    .hm-courses { grid-template-columns: 1fr; gap: 32px; }
     .hm-cintro { position: static; }
     .hm-cstamp { display: none; }
   }
@@ -265,7 +290,6 @@ const css = `
     .hm-route-wrap { margin-top: 68px; padding: 60px 0 64px; }
     .hm-cta-sec { padding: 68px 0 76px; }
     .hm-cta { box-shadow: 5px 5px 0 var(--sun); border-radius: 26px; }
-    .hm-trow .meta span:first-child { display: none; }
     .hm-note.n1 { right: 6px; } .hm-note.n2 { left: 6px; }
   }
   @media (max-width: 560px) {
@@ -278,9 +302,6 @@ const css = `
     .hm-board { border-radius: 24px; box-shadow: var(--hard); }
     .hm-note { padding: 6px 10px 6px 6px; }
     .hm-note .ic { width: 26px; height: 26px; }
-    .hm-trow { padding: 14px 14px; gap: 12px; }
-    .hm-trow .rk { display: none; }
-    .hm-trow .av { width: 44px; height: 44px; border-radius: 14px; font-size: 15px; }
     .hm-cta { padding: 40px 22px; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -548,38 +569,45 @@ export default function Home() {
         {/* ── Teachers ── */}
         <section className="hm-sec">
           <div className="container">
-            <div className="hm-teach">
-              <div className="hm-tside">
+            <div className="hm-thead">
+              <div>
                 <span className="eyebrow">O'qituvchilarimiz</span>
                 <h2 className="section-title">Yo'l boshlovchi <span className="mark-coral">ustozlar</span></h2>
                 <p>Eng yaxshi mutaxassislar — har bir kurs ortida tajribali, tekshirilgan o'qituvchi turadi.</p>
-                <Link to="/teachers" className="btn btn-secondary">Barchasi <Icon name="arrowR" size={14} /></Link>
               </div>
-              {topTeachers.length === 0 ? (
-                <div className="hm-empty">
-                  <span className="e">🎒</span>
-                  O'qituvchilar tez orada qo'shiladi.
-                </div>
-              ) : (
-                <div className="hm-tlist">
-                  {topTeachers.map((t, i) => (
-                    <Link key={t.id} to={`/teachers/${t.id}`} className="hm-trow">
-                      <span className="rk">{String(i + 1).padStart(2, '0')}</span>
-                      <span className="av" style={{ background: AV_TONES[i % AV_TONES.length] }}>{t.initials}</span>
-                      <span className="who">
-                        <b>{t.display_name}</b>
-                        <span>{t.specialty || t.bio?.slice(0, 40) || 'Geografiya'}</span>
-                      </span>
-                      <span className="meta">
-                        <span><b>{t.course_count ?? 0}</b>kurs</span>
-                        <span><b>{(t.avg_rating ?? 0).toFixed(1)}</b>reyting</span>
-                      </span>
-                      <Icon name="arrowR" size={17} className="arr" />
-                    </Link>
-                  ))}
-                </div>
-              )}
+              <Link to="/teachers" className="btn btn-secondary">Barcha ustozlar <Icon name="arrowR" size={14} /></Link>
             </div>
+            {topTeachers.length === 0 ? (
+              <div className="hm-empty">
+                <span className="e">🎒</span>
+                O'qituvchilar tez orada qo'shiladi.
+              </div>
+            ) : (
+              <div className="hm-tgrid">
+                {topTeachers.map((t, i) => (
+                  <Link key={t.id} to={`/teachers/${t.id}`} className="hm-tcard">
+                    <span className="hm-tphoto" style={{ background: AV_TONES[i % AV_TONES.length] }}>
+                      {t.avatar
+                        ? <img src={absUrl(t.avatar)} alt={t.display_name} loading="lazy" />
+                        : <span className="ini" aria-hidden="true">{t.initials}</span>}
+                      {(t.avg_rating ?? 0) > 0 && (
+                        <span className="rate"><Icon name="starF" size={12} /> {t.avg_rating.toFixed(1)}</span>
+                      )}
+                      <span className="no">№ {String(i + 1).padStart(2, '0')}</span>
+                    </span>
+                    <span className="hm-tbody">
+                      <b>{t.display_name}</b>
+                      <span className="sp">{t.specialty || t.bio?.slice(0, 60) || "Geografiya o'qituvchisi"}</span>
+                      <span className="ft">
+                        <span><i>{t.course_count ?? 0}</i>kurs</span>
+                        <span><i>{t.students_count ?? 0}</i>o'quvchi</span>
+                        <Icon name="arrowR" size={16} />
+                      </span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 

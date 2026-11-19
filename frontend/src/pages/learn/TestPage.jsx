@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import api from '../../api/client'
+import api, { apiError } from '../../api/client'
 import Navbar from '../../components/Navbar'
 import Icon from '../../components/Icon'
 import Logo from '../../components/Logo'
@@ -226,9 +226,9 @@ export default function TestPage() {
       setStage('active')
       if (data.resumed) toast('Test davom ettirilmoqda — javoblaringiz saqlangan', { icon: '⏳' })
     } catch (e) {
-      const d = e.response?.data
-      toast.error(d?.detail || "Testni boshlab bo'lmadi")
-      if (d?.code === 'attempts_exhausted') qc.invalidateQueries({ queryKey: ['test-detail', testId] })
+      toast.error(apiError(e, "Testni boshlab bo'lmadi"), { duration: 6000 })
+      // Refresh the intro so attempt limits / closed tests show their real state.
+      qc.invalidateQueries({ queryKey: ['test-detail', testId] })
     } finally { setStarting(false) }
   }
 

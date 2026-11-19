@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import api, { absUrl } from '../../api/client'
+import api, { absUrl, apiError } from '../../api/client'
 import { useAuth } from '../../store/auth'
 import DashLayout from '../../components/DashLayout'
 import Icon from '../../components/Icon'
@@ -155,13 +155,7 @@ const css = `
   }
 `
 
-const errMsg = (e, fallback) => {
-  const d = e?.response?.data
-  if (!d) return e?.response ? fallback : "Server bilan aloqa yo'q"
-  if (typeof d === 'string') return fallback
-  const first = d.detail || d.title || d.status || Object.values(d)[0]
-  return String(Array.isArray(first) ? first[0] : first || fallback)
-}
+const errMsg = apiError
 
 function ytId(url) {
   const m = (url || '').match(/(?:youtu\.be\/|v=|embed\/|shorts\/|live\/)([\w-]{11})/)
@@ -624,6 +618,8 @@ export default function CourseBuilder() {
   const [collapsed, setCollapsed] = useState({})
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [busyConfirm, setBusyConfirm] = useState(false)
+  const pendingRef = useRef(null)
+  const sendingRef = useRef(false)
 
   const { data: course, isLoading, isError } = useQuery({
     queryKey: ['studio-course', slug],
@@ -672,18 +668,32 @@ export default function CourseBuilder() {
     if (window.innerWidth <= 1180) setOutlineOpen(false)
   }
 
+  // Reorders are sent strictly one after another, and only the newest
+  // arrangement is sent — quick successive moves can never overwrite each
+  // other out of order on the server.
   async function persist(next, { silent } = {}) {
     setTree(next)
+    pendingRef.current = next
+    if (sendingRef.current) return
+    sendingRef.current = true
     setSaving(true)
     try {
-      await api.post(`/courses/${slug}/structure/`, {
-        sections: next.map(s => ({ id: s.id, items: s.items.map(i => ({ kind: i.kind, id: i.id })) })),
-      })
+      while (pendingRef.current) {
+        const t = pendingRef.current
+        pendingRef.current = null
+        await api.post(`/courses/${slug}/structure/`, {
+          sections: t.map(s => ({ id: s.id, items: s.items.map(i => ({ kind: i.kind, id: i.id })) })),
+        })
+      }
       if (!silent) reload()
     } catch (e) {
-      toast.error(errMsg(e, "Tartibni saqlab bo'lmadi"))
+      pendingRef.current = null
+      toast.error(errMsg(e, "Tartibni saqlab bo'lmadi"), { duration: 6000 })
       reload()
-    } finally { setSaving(false) }
+    } finally {
+      sendingRef.current = false
+      setSaving(false)
+    }
   }
 
   /* ── sections ── */

@@ -78,6 +78,16 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            # Several requests write at once (test autosave, curriculum
+            # reorder). Without these SQLite answers "database is locked":
+            #  - timeout: wait for the other writer instead of failing
+            #  - IMMEDIATE: take the write lock up front (no mid-transaction upgrade deadlock)
+            #  - WAL: readers and the writer no longer block each other
+            'OPTIONS': {
+                'timeout': 20,
+                'transaction_mode': 'IMMEDIATE',
+                'init_command': 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
+            },
         }
     }
 
@@ -118,7 +128,7 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
